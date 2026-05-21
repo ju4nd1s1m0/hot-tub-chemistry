@@ -1,0 +1,2005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1" />
+  <title>Hot Tub Chemistry</title>
+
+  <!-- iOS PWA meta tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Hot Tub" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#f5f5f7" />
+  <meta name="format-detection" content="telephone=no" />
+
+  <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj48cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgcng9IjQwIiBmaWxsPSIjMDA3YWZmIi8+PHRleHQgeD0iOTAiIHk9IjEyOCIgZm9udC1zaXplPSIxMTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IndoaXRlIj7imag8L3RleHQ+PC9zdmc+" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj48cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgcng9IjQwIiBmaWxsPSIjMDA3YWZmIi8+PHRleHQgeD0iOTAiIHk9IjEyOCIgZm9udC1zaXplPSIxMTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IndoaXRlIj7imag8L3RleHQ+PC9zdmc+" />
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Import map: resolves bare imports (React, lucide-react) to ES modules from esm.sh -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.3.1",
+      "react/": "https://esm.sh/react@18.3.1/",
+      "react-dom": "https://esm.sh/react-dom@18.3.1?deps=react@18.3.1",
+      "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1",
+      "lucide-react": "https://esm.sh/lucide-react@0.383.0?deps=react@18.3.1&external=react"
+    }
+  }
+  </script>
+
+  <!-- Babel Standalone for in-browser JSX compilation -->
+  <script src="https://unpkg.com/@babel/standalone@7.24.10/babel.min.js"></script>
+
+  <style>
+    html, body { background: #f5f5f7; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+                   "Helvetica Neue", Helvetica, Arial, sans-serif;
+      overscroll-behavior-y: none;
+    }
+    #root { min-height: 100vh; min-height: 100dvh; }
+    .num-wheel-scroll::-webkit-scrollbar { display: none; }
+    .num-wheel-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:#86868b;font-size:14px;">
+      Loading…
+    </div>
+  </div>
+
+  <!-- App code: Babel transforms JSX, output runs as ES module so imports resolve via import map -->
+  <script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  AlertTriangle, RotateCcw, Clock, Pencil, Wind, Droplets,
+  ArrowLeft, Lightbulb, ListChecks, ChevronRight, ChevronDown,
+  Info, Check, X, History, ShieldAlert, Beaker, Bell, FlaskConical,
+} from 'lucide-react';
+
+// ─────────────────────────────────────────────────────────────────
+// Storage helpers
+// ─────────────────────────────────────────────────────────────────
+const KEY = {
+  welcome: 'hottub:welcome:v2',
+  volume: 'hottub:volume:v1',
+  mode: 'hottub:mode:v1',
+  history: 'hottub:history:v1',
+};
+
+async function storageGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+async function storageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
+}
+
+// ─────────────────────────────────────────────────────────────────
+// User's chemicals — baked in based on your products & labels
+// Each factor: tsp per 100 gal per "unit" of effect
+// ─────────────────────────────────────────────────────────────────
+const MY_CHEMICALS = [
+  {
+    id: 'phUp',
+    label: 'pH Up',
+    recName: 'pH Up',
+    productName: 'Sodium carbonate 100%',
+    activeIngredient: 'Sodium carbonate (soda ash)',
+    labelDose: '1 oz / 500 gal for pH 6.8–7.1; 2 oz / 500 gal for pH < 6.8',
+    unit: 0.2, unitName: 'pH',
+    tspFactor: 0.5,
+    usedFor: 'Raises pH when it drops below 7.4',
+  },
+  {
+    id: 'phDown',
+    label: 'pH Down',
+    recName: 'pH Down',
+    productName: 'Sodium bisulfate 100%',
+    activeIngredient: 'Sodium bisulfate (dry acid)',
+    labelDose: '¼ oz / 500 gal for pH 7.7–8.0; ½ oz / 500 gal for pH > 8.0',
+    unit: 0.2, unitName: 'pH',
+    tspFactor: 0.17,
+    usedFor: 'Lowers pH when it rises above 7.6',
+  },
+  {
+    id: 'alkalinityUp',
+    label: 'Alkalinity Up',
+    recName: 'Alkalinity Up',
+    productName: 'SpaGuard Total Alkalinity Increaser',
+    activeIngredient: 'Sodium bicarbonate (baking soda)',
+    labelDose: '4 Tbsp / 400 gal raises TA 25 ppm',
+    unit: 10, unitName: 'ppm',
+    tspFactor: 1.2,
+    usedFor: 'Raises total alkalinity when it drops below 80 ppm',
+  },
+  {
+    id: 'alkalinityDown',
+    label: 'Alkalinity Down',
+    recName: 'pH Down', // same bottle as pH Down
+    productName: 'Sodium bisulfate 100% (same as pH Down)',
+    activeIngredient: 'Sodium bisulfate (dry acid)',
+    labelDose: 'Same product as pH Down — see label',
+    unit: 10, unitName: 'ppm',
+    tspFactor: 0.6,
+    usedFor: 'Lowers total alkalinity when it rises above 120 ppm',
+  },
+  {
+    id: 'chlorine',
+    label: 'Chlorine',
+    recName: 'Chlorine',
+    productName: 'Spa 56 Chlorinating Granules',
+    activeIngredient: 'Sodium dichloro-s-triazinetrione (dichlor) 99%',
+    labelDose: '½ oz / 500 gal raises free chlorine to 2–3 ppm; 1 oz / 500 gal for shock',
+    unit: 5, unitName: 'ppm free chlorine',
+    tspFactor: 1.2,
+    usedFor: 'Sanitizer — raises free chlorine; also used for shock',
+    shockTspFactor: 1.2,
+  },
+  {
+    id: 'calciumUp',
+    label: 'Calcium Up',
+    recName: 'Calcium Up',
+    productName: 'Calcium hardness increaser',
+    activeIngredient: 'Calcium chloride',
+    labelDose: '2 Tbsp / 500 gal raises calcium 10 ppm',
+    unit: 10, unitName: 'ppm',
+    tspFactor: 1.2,
+    usedFor: 'Raises calcium hardness when it drops below 150 ppm',
+  },
+  {
+    id: 'chlorineNeutralizer',
+    label: 'Chlorine Neutralizer',
+    recName: 'Chlorine Neutralizer',
+    productName: 'MAV AquaDoc Chlorine/Bromine Neutralizer',
+    activeIngredient: 'Sodium thiosulfate',
+    labelDose: '1 oz = 4 tsp neutralizes 1 ppm chlorine per 10,000 gal',
+    unit: 1, unitName: 'ppm chlorine reduction',
+    tspFactor: 0.04,
+    usedFor: 'Lowers free chlorine quickly when too high to soak',
+  },
+  {
+    id: 'nonChlorineShock',
+    label: 'Non-Chlorine Shock',
+    recName: 'Non-Chlorine Shock',
+    productName: 'Professional Chlorine-Free Shock',
+    activeIngredient: 'Potassium peroxymonosulfate (MPS) 36.2%',
+    labelDose: '2 oz / 500 gal after every use',
+    unit: 1, unitName: 'maintenance dose',
+    tspFactor: 2.4,
+    usedFor: 'Oxidizes contaminants without raising chlorine',
+  },
+];
+
+const getChem = (id) => MY_CHEMICALS.find(c => c.id === id);
+
+// ─────────────────────────────────────────────────────────────────
+// Theme
+// ─────────────────────────────────────────────────────────────────
+const C = {
+  bg: '#f5f5f7', card: '#ffffff',
+  border: 'rgba(0,0,0,0.08)', borderSoft: 'rgba(0,0,0,0.05)',
+  primary: '#1d1d1f', secondary: '#86868b', tertiary: '#a1a1a6',
+  blue: '#007aff', blueDark: '#0062cc',
+  green: '#34c759', orange: '#ff9500', red: '#ff3b30',
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Chemistry
+// ─────────────────────────────────────────────────────────────────
+function formatTsp(tsp) {
+  if (tsp == null || isNaN(tsp)) return '—';
+  if (tsp < 0.2) return 'a small pinch';
+  if (tsp < 3) {
+    const r = Math.round(tsp * 4) / 4;
+    return `${r} tsp`;
+  }
+  const tbsp = tsp / 3;
+  if (tbsp < 16) {
+    const r = Math.round(tbsp * 4) / 4;
+    return `${r} tbsp`;
+  }
+  return `${(tbsp / 16).toFixed(1)} cups`;
+}
+
+const ORDER = { alkalinity: 1, ph: 2, calcium: 3, cya: 4, combinedCl: 5, freeCl: 6 };
+
+const JETS = {
+  noAir:      { icon: Droplets, label: 'Jets · no air' },
+  withAir:    { icon: Wind,     label: 'Jets · air on' },
+  thenAerate: { icon: Wind,     label: 'Jets, then aerate' },
+  either:     { icon: Droplets, label: 'Jets · air optional' },
+  aerateOnly: { icon: Wind,     label: 'Aerate · cover off' },
+};
+
+const PARAM_INFO = {
+  alkalinity: {
+    name: 'Total Alkalinity',
+    plain: "The water's ability to hold pH steady. Think of it as a buffer — when alkalinity is right, pH stays put.",
+    matters: "Always fix alkalinity before pH; otherwise pH will keep drifting.",
+    ok: [80, 120], extreme: [30, 240], unit: 'ppm',
+  },
+  ph: {
+    name: 'pH',
+    plain: "How acidic or basic the water is. 7.0 is neutral.",
+    matters: "Low pH stings eyes and corrodes metal. High pH makes chlorine weak and clouds the water.",
+    ok: [7.4, 7.6], extreme: [6.5, 8.5], unit: '',
+  },
+  freeCl: {
+    name: 'Free Chlorine',
+    plain: "The active sanitizer. After it kills bacteria, it becomes 'combined chlorine' which doesn't sanitize anymore.",
+    matters: "Below 3 ppm: water isn't sanitized. Above 5 ppm: don't soak.",
+    ok: [3, 5], extreme: [0, 10], unit: 'ppm',
+  },
+  totalCl: {
+    name: 'Total Chlorine',
+    plain: "Free chlorine plus used-up chlorine combined. The difference between this and free chlorine is the used-up part.",
+    matters: "If the used-up chlorine is over 0.5 ppm, water can smell and irritate skin — time to shock.",
+    ok: null, extreme: null, unit: 'ppm',
+  },
+  calcium: {
+    name: 'Calcium Hardness',
+    plain: "Dissolved calcium in the water.",
+    matters: "Too low: water etches surfaces. Too high: scale on heaters. Only draining lowers it.",
+    ok: [150, 250], extreme: [50, 500], unit: 'ppm',
+  },
+  cya: {
+    name: 'Cyanuric Acid',
+    plain: "Stabilizer that protects chlorine from sunlight.",
+    matters: "Too low: chlorine burns off fast outdoors. Too high: chlorine gets weak. Only draining lowers it.",
+    ok: [30, 50], extreme: [0, 100], unit: 'ppm',
+  },
+};
+
+function analyze(v, volume) {
+  const out = [];
+  const num = (s) => { const n = parseFloat(s); return isNaN(n) ? null : n; };
+  const scale = volume / 100;
+  const round1 = (n) => Math.round(n * 10) / 10;
+
+  const ta = num(v.alkalinity);
+  const ph = num(v.ph);
+  const fc = num(v.freeCl);
+  const tc = num(v.totalCl);
+  const ch = num(v.calcium);
+  const cya = num(v.cya);
+
+  // Alkalinity
+  if (ta !== null) {
+    if (ta < 80) {
+      const p = getChem('alkalinityUp');
+      const tsp = ((100 - ta) / 10) * p.tspFactor * scale;
+      out.push({
+        key: 'alkalinity', label: 'Total Alkalinity', value: `${ta}`, unit: 'ppm',
+        range: '80–120', status: 'low',
+        chemical: p.recName, amountTsp: tsp,
+        action: 'raise alkalinity', acid: false,
+        currentValue: ta, targetValue: 100, ppmChange: 100 - ta,
+        advice: [`Add ${formatTsp(tsp)} of **${p.recName}** to reach ~100 ppm.`],
+        math: `Your Alkalinity Up bottle raises alkalinity 25 ppm with 4 Tbsp in 400 gallons. You need ${100 - ta} ppm more in ${volume} gallons — about ${round1(tsp)} tsp.`,
+        jets: JETS.either, jetsNote: 'Alkalinity Up nudges pH up slightly. Air optional.',
+        waitMinutes: 30, waitAfter: '30 min before pH',
+      });
+    } else if (ta > 120) {
+      const p = getChem('alkalinityDown');
+      const tsp = ((ta - 100) / 10) * p.tspFactor * scale;
+      out.push({
+        key: 'alkalinity', label: 'Total Alkalinity', value: `${ta}`, unit: 'ppm',
+        range: '80–120', status: 'high',
+        chemical: p.recName, amountTsp: tsp,
+        action: 'lower alkalinity', acid: true,
+        currentValue: ta, targetValue: 100, ppmChange: ta - 100,
+        advice: [
+          `Add ${formatTsp(tsp)} of **${p.recName}** (same bottle you'd use for pH) to reach ~100 ppm.`,
+          `Then aerate with the cover off to recover pH.`,
+        ],
+        math: `pH Down lowers both pH and alkalinity. To drop alkalinity by ${ta - 100} ppm in ${volume} gallons, you need about ${round1(tsp)} tsp. Aerating afterward brings pH back up while leaving alkalinity where you want it.`,
+        jets: JETS.thenAerate, jetsNote: 'Add with jets only. After 30 min, run jets + air for hours to recover pH.',
+        waitMinutes: 30, waitAfter: '30 min, then aerate',
+      });
+    } else {
+      out.push({ key: 'alkalinity', label: 'Total Alkalinity', value: `${ta}`, unit: 'ppm', range: '80–120', status: 'ok', advice: 'In range.' });
+    }
+  }
+
+  // pH
+  if (ph !== null) {
+    if (ph < 7.4) {
+      const p = getChem('phUp');
+      const tsp = ((7.5 - ph) / 0.2) * p.tspFactor * scale;
+      out.push({
+        key: 'ph', label: 'pH', value: ph.toFixed(1), unit: '',
+        range: '7.4–7.6', status: 'low',
+        chemical: p.recName, amountTsp: tsp,
+        action: 'raise pH', acid: false,
+        currentValue: ph, targetValue: 7.5, ppmChange: 7.5 - ph,
+        advice: [
+          `Add ${formatTsp(tsp)} of **${p.recName}** to reach ~7.5.`,
+          `Or just run jets with air on for a few hours if pH is only slightly low.`,
+        ],
+        math: `To raise pH from ${ph} to 7.5 in ${volume} gallons, you need about ${round1(tsp)} tsp of pH Up. (Or aeration alone can bring pH up over a few hours by releasing CO2.)`,
+        jets: JETS.withAir, jetsNote: 'Air drives off CO2 and raises pH naturally.',
+        waitMinutes: 30, waitAfter: '30 min before chlorine',
+      });
+    } else if (ph > 7.6) {
+      const p = getChem('phDown');
+      const tsp = ((ph - 7.5) / 0.2) * p.tspFactor * scale;
+      out.push({
+        key: 'ph', label: 'pH', value: ph.toFixed(1), unit: '',
+        range: '7.4–7.6', status: 'high',
+        chemical: p.recName, amountTsp: tsp,
+        action: 'lower pH', acid: true,
+        currentValue: ph, targetValue: 7.5, ppmChange: ph - 7.5,
+        advice: [`Add ${formatTsp(tsp)} of **${p.recName}** to lower pH to ~7.5.`],
+        math: `To lower pH from ${ph} to 7.5 in ${volume} gallons, you need about ${round1(tsp)} tsp of pH Down.`,
+        jets: JETS.noAir, jetsNote: 'Air would raise pH and fight the dose.',
+        waitMinutes: 30, waitAfter: '30 min before chlorine',
+      });
+    } else {
+      out.push({ key: 'ph', label: 'pH', value: ph.toFixed(1), unit: '', range: '7.4–7.6', status: 'ok', advice: 'In range.' });
+    }
+  }
+
+  // Chlorine
+  let cc = null;
+  if (fc !== null && tc !== null) cc = Math.max(0, tc - fc);
+  if (fc !== null) {
+    const ccHigh = cc !== null && cc > 0.5;
+    if (ccHigh) {
+      const p = getChem('chlorine');
+      const altShock = getChem('nonChlorineShock');
+      const targetFC = Math.max(10, cc * 10);
+      const fcNeeded = targetFC - fc;
+      const tsp = (fcNeeded / 5) * p.tspFactor * scale;
+      const mpsTsp = altShock ? altShock.tspFactor * scale : null;
+      out.push({
+        key: 'combinedCl', label: 'Shock — Combined chlorine high', value: `${cc.toFixed(1)}`, unit: 'ppm',
+        range: '< 0.5', status: 'high',
+        chemical: p.recName, amountTsp: tsp,
+        action: 'shock the tub', acid: false,
+        currentValue: fc, targetValue: targetFC, ppmChange: fcNeeded,
+        advice: [
+          `Shock with ${formatTsp(tsp)} of **Chlorine** — pushes free chlorine to ~${targetFC.toFixed(0)} ppm.`,
+          ...(mpsTsp ? [`Or ${formatTsp(mpsTsp)} of **Non-Chlorine Shock** — won't raise chlorine.`] : []),
+        ],
+        math: `When combined chlorine is high, you need to push the free chlorine to about 10× that level to fully sanitize and burn off the used-up chlorine. That's why this dose is so much bigger than usual.`,
+        jets: JETS.noAir, jetsNote: 'Air off-gasses chlorine. Cover off after to let free chlorine drop.',
+        waitMinutes: null, waitAfter: 'until free chlorine drops below 5 ppm',
+      });
+    } else if (fc < 3) {
+      const p = getChem('chlorine');
+      const tsp = ((4 - fc) / 5) * p.tspFactor * scale;
+      out.push({
+        key: 'freeCl', label: 'Free Chlorine', value: `${fc}`, unit: 'ppm',
+        range: '3–5', status: 'low',
+        chemical: p.recName, amountTsp: tsp,
+        action: 'raise free chlorine', acid: false,
+        currentValue: fc, targetValue: 4, ppmChange: 4 - fc,
+        advice: [`Add ${formatTsp(tsp)} of **${p.recName}** to bring free chlorine to ~4 ppm.`],
+        math: `To raise free chlorine by ${(4 - fc).toFixed(1)} ppm in ${volume} gallons, you need about ${round1(tsp)} tsp of chlorine granules.`,
+        jets: JETS.noAir, jetsNote: 'Air can off-gas chlorine — keep it off.',
+      });
+    } else if (fc > 5) {
+      const p = getChem('chlorineNeutralizer');
+      const tsp = (fc - 4) * p.tspFactor * scale;
+      out.push({
+        key: 'freeCl', label: 'Free Chlorine', value: `${fc}`, unit: 'ppm',
+        range: '3–5', status: 'high',
+        chemical: p.recName, amountTsp: tsp,
+        action: 'lower free chlorine', acid: false,
+        currentValue: fc, targetValue: 4, ppmChange: fc - 4,
+        advice: [
+          `Leave the cover off with jets + air for a few hours.`,
+          `Or add ${formatTsp(tsp)} of **${p.recName}** for a faster drop.`,
+        ],
+        math: `To drop free chlorine by ${(fc - 4).toFixed(1)} ppm in ${volume} gallons, you need about ${round1(tsp)} tsp of neutralizer. Leaving the cover off works too — it just takes longer.`,
+        jets: JETS.aerateOnly, jetsNote: 'Air helps either way.',
+      });
+    } else {
+      out.push({ key: 'freeCl', label: 'Free Chlorine', value: `${fc}`, unit: 'ppm', range: '3–5', status: 'ok', advice: 'In range.' });
+    }
+  }
+
+  // Calcium
+  if (ch !== null) {
+    if (ch < 150) {
+      const p = getChem('calciumUp');
+      const tsp = ((200 - ch) / 10) * p.tspFactor * scale;
+      out.push({
+        key: 'calcium', label: 'Calcium Hardness', value: `${ch}`, unit: 'ppm',
+        range: '150–250', status: 'low',
+        chemical: p.recName, amountTsp: tsp,
+        action: 'raise calcium hardness', acid: false,
+        currentValue: ch, targetValue: 200, ppmChange: 200 - ch,
+        advice: [`Add ${formatTsp(tsp)} of **${p.recName}** to reach ~200 ppm.`],
+        math: `Your Calcium Up bottle raises calcium 10 ppm with 2 Tbsp in 500 gallons. You need ${200 - ch} ppm more in ${volume} gallons — about ${round1(tsp)} tsp.`,
+        jets: JETS.either, jetsNote: 'Just for mixing.',
+      });
+    } else if (ch > 250) {
+      const drainPct = ((ch - 200) / ch) * 100;
+      out.push({
+        key: 'calcium', label: 'Calcium Hardness', value: `${ch}`, unit: 'ppm',
+        range: '150–250', status: 'high',
+        advice: [`Can't be lowered chemically. Drain ~${drainPct.toFixed(0)}% and refill.`],
+      });
+    } else {
+      out.push({ key: 'calcium', label: 'Calcium Hardness', value: `${ch}`, unit: 'ppm', range: '150–250', status: 'ok', advice: 'In range.' });
+    }
+  }
+
+  // CYA
+  if (cya !== null) {
+    if (cya < 30) {
+      const oz = ((40 - cya) / 10) * 0.13 * scale;
+      const tsp = oz * 6;
+      out.push({
+        key: 'cya', label: 'Cyanuric Acid', value: `${cya}`, unit: 'ppm',
+        range: '30–50', status: 'low',
+        chemical: 'cyanuric acid (stabilizer)', amountTsp: tsp,
+        action: 'raise cyanuric acid', acid: false,
+        currentValue: cya, targetValue: 40, ppmChange: 40 - cya,
+        advice: [
+          `Add ${formatTsp(tsp)} of **cyanuric acid** (stabilizer).`,
+          `Takes a few days to fully dissolve.`,
+          `Don't re-dose for at least 3 days — readings stay low while it dissolves.`,
+        ],
+        math: `Cyanuric acid raises stabilizer 10 ppm per 0.13 oz per 100 gallons. To go up ${40 - cya} ppm in ${volume} gallons, you need about ${round1(oz)} oz.`,
+        jets: JETS.either, jetsNote: 'Mixing only.',
+      });
+    } else if (cya > 50) {
+      const drainPct = ((cya - 40) / cya) * 100;
+      out.push({
+        key: 'cya', label: 'Cyanuric Acid', value: `${cya}`, unit: 'ppm',
+        range: '30–50', status: 'high',
+        advice: [`Can't be lowered chemically. Drain ~${drainPct.toFixed(0)}% and refill.`],
+      });
+    } else {
+      out.push({ key: 'cya', label: 'Cyanuric Acid', value: `${cya}`, unit: 'ppm', range: '30–50', status: 'ok', advice: 'In range.' });
+    }
+  }
+
+  // Interactions
+  const taR = out.find(r => r.key === 'alkalinity');
+  const phR = out.find(r => r.key === 'ph');
+  if (taR && phR) {
+    if (taR.status === 'high' && phR.status === 'high') {
+      phR.amountTsp = null; phR.chemical = null; phR.acid = false;
+      phR.advice = [
+        `Skipped — **pH Down** also lowers pH.`,
+        `After step 1, aerate to recover pH while alkalinity stays low.`,
+      ];
+      phR.math = 'Two birds, one bottle. pH Down lowers both alkalinity AND pH; aerating raises pH back.';
+      phR.jets = JETS.withAir; phR.jetsNote = 'Air on after step 1.';
+      phR.waitMinutes = null; phR.waitAfter = null; phR.merged = true;
+    } else if (taR.status === 'low' && phR.status === 'low') {
+      phR.amountTsp = null; phR.chemical = null; phR.acid = false;
+      phR.advice = [
+        `Skipped — **Alkalinity Up** also raises pH.`,
+        `Re-test after step 1.`,
+      ];
+      phR.math = 'Alkalinity Up raises both alkalinity and pH. One dose handles both.';
+      phR.jets = JETS.either; phR.jetsNote = 'Optional air bump after step 1.';
+      phR.waitMinutes = null; phR.waitAfter = null; phR.merged = true;
+    }
+  }
+
+  out.sort((a, b) => {
+    if (a.status === 'ok' && b.status !== 'ok') return 1;
+    if (a.status !== 'ok' && b.status === 'ok') return -1;
+    return (ORDER[a.key] ?? 99) - (ORDER[b.key] ?? 99);
+  });
+
+  let step = 0;
+  out.forEach(r => { if (r.status !== 'ok' && !r.merged) { step++; r.step = step; } });
+  return out;
+}
+
+function getSanityWarnings(values) {
+  const warnings = [];
+  const num = (s) => { const n = parseFloat(s); return isNaN(n) ? null : n; };
+  const ta = num(values.alkalinity), ph = num(values.ph);
+  const fc = num(values.freeCl), tc = num(values.totalCl);
+  const ch = num(values.calcium), cya = num(values.cya);
+
+  if (ph != null && (ph < 6.5 || ph > 8.5)) warnings.push(`pH of ${ph} is unusual. Re-test before adding chemicals.`);
+  if (fc != null && fc > 10) warnings.push(`${fc} ppm free chlorine is very high. Don't soak.`);
+  if (tc != null && fc != null && tc < fc) warnings.push(`Total chlorine should be ≥ free chlorine. Re-run that test.`);
+  if (tc != null && fc != null && (tc - fc) > 5) warnings.push(`Heavy chloramine load (${(tc - fc).toFixed(1)} ppm). Significant shock needed.`);
+  if (ta != null && (ta < 30 || ta > 240)) warnings.push(`${ta} ppm alkalinity is extreme. Verify the test.`);
+  if (ch != null && (ch < 50 || ch > 500)) warnings.push(`${ch} ppm calcium is unusual. Compare to your tap water.`);
+  if (cya != null && cya > 100) warnings.push(`${cya} ppm CYA is very high. Significant drain needed.`);
+  return warnings;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Wheel values
+// ─────────────────────────────────────────────────────────────────
+function buildValues(start, end, step, decimals = 0) {
+  const arr = ['—'];
+  const factor = Math.pow(10, decimals);
+  const startInt = Math.round(start * factor);
+  const endInt = Math.round(end * factor);
+  const stepInt = Math.round(step * factor);
+  for (let i = startInt; i <= endInt; i += stepInt) {
+    const n = i / factor;
+    arr.push(decimals > 0 ? n.toFixed(decimals) : String(n));
+  }
+  return arr;
+}
+
+const WHEEL_VALUES = {
+  alkalinity: buildValues(0, 240, 10, 0),
+  ph:         buildValues(6.0, 9.0, 0.1, 1),
+  freeCl:     buildValues(0, 10, 0.5, 1),
+  totalCl:    buildValues(0, 10, 0.5, 1),
+  calcium:    buildValues(0, 500, 25, 0),
+  cya:        buildValues(0, 150, 5, 0),
+};
+
+const FIELDS_FULL = ['alkalinity', 'ph', 'freeCl', 'totalCl', 'calcium', 'cya'];
+const FIELDS_BASIC = ['ph', 'freeCl'];
+const FIELD_LABELS = {
+  alkalinity: 'Alkalinity', ph: 'pH', freeCl: 'Free Chlorine',
+  totalCl: 'Total Chlorine', calcium: 'Calcium', cya: 'CYA',
+};
+
+function getRangeStatus(field, value) {
+  if (!value || value === '—') return 'neutral';
+  const info = PARAM_INFO[field];
+  if (!info || !info.ok) return 'neutral';
+  const n = parseFloat(value);
+  if (isNaN(n)) return 'neutral';
+  if (n >= info.ok[0] && n <= info.ok[1]) return 'good';
+  if (info.extreme && (n < info.extreme[0] || n > info.extreme[1])) return 'bad';
+  return 'warn';
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Test procedures
+// ─────────────────────────────────────────────────────────────────
+const TESTS = [
+  {
+    id: 'chlorine', label: 'Chlorine', field: null, mult: null,
+    title: 'Free, Total & Combined Chlorine',
+    method: 'DPD colorimetric · ~30 sec',
+    needs: ['Chlorine/bromine cell', 'R-0001 — DPD #1', 'R-0002 — DPD #2', 'R-0003 — DPD #3'],
+    steps: [
+      'Rinse the chlorine/bromine cell with sample water, then fill to the fill line.',
+      'Add 5 drops of R-0001 (DPD #1).',
+      'Add 5 drops of R-0002 (DPD #2). Cap and invert to mix.',
+      'Match the pink color to the comparator standard. Record this as Free Chlorine.',
+      'Without rinsing, add 5 drops of R-0003 (DPD #3). Cap and invert to mix.',
+      'Match the color immediately to the standard. Record this as Total Chlorine.',
+      'Combined chlorine = Total Chlorine minus Free Chlorine. Should be under 0.5 ppm.',
+    ],
+    tip: 'Read Total Chlorine immediately — color can fade in 30–60 seconds.',
+  },
+  {
+    id: 'ph', label: 'pH', field: 'ph', mult: null,
+    title: 'pH', method: 'Phenol Red · ~15 sec',
+    needs: ['pH cell', 'R-0014 — Phenol Red'],
+    steps: [
+      'Rinse the pH cell, then fill to the fill line.',
+      'Add 5 drops of R-0014. Cap and invert to mix.',
+      'Match the color to the standard (6.8, 7.2, 7.5, 7.8, 8.2).',
+      'If between two values, take the average.',
+    ],
+    tip: 'Always bring TA into range first — pH won\'t hold steady otherwise.',
+  },
+  {
+    id: 'alkalinity', label: 'Alkalinity', field: 'alkalinity', mult: 10,
+    title: 'Total Alkalinity', method: 'Drop-count titration · ~1 min',
+    needs: ['Sample tube #9198', 'R-0007', 'R-0008', 'R-0009'],
+    steps: [
+      'Rinse and fill sample tube #9198 to the 25 mL mark.',
+      'Add 2 drops of R-0007. Swirl to mix.',
+      'Add 5 drops of R-0008. Sample should turn green.',
+      'Add R-0009 one drop at a time, counting and swirling between drops. Use the counter below.',
+      'Stop when the color changes from green to red.',
+      'Multiply your drop count by 10 — that\'s your alkalinity in ppm.',
+    ],
+    tip: 'Add R-0009 slowly. The first drop that flips green to red is your endpoint.',
+  },
+  {
+    id: 'calcium', label: 'Calcium', field: 'calcium', mult: 10,
+    title: 'Calcium Hardness', method: 'Drop-count titration · ~1 min',
+    needs: ['Sample tube #9198', 'R-0010', 'R-0011L', 'R-0012'],
+    steps: [
+      'Rinse and fill sample tube #9198 to the 25 mL mark.',
+      'Add 20 drops of R-0010. Swirl to mix. (Yes, 20.)',
+      'Add 5 drops of R-0011L. Sample should turn red.',
+      'Add R-0012 one drop at a time, counting and swirling between drops.',
+      'Stop when the color changes from red to blue.',
+      'Multiply your drop count by 10 — that\'s your calcium hardness in ppm.',
+    ],
+    tip: 'The red-to-blue transition is sharp — slow down as it heads toward purple.',
+  },
+  {
+    id: 'cya', label: 'CYA', field: 'cya', mult: null,
+    title: 'Cyanuric Acid', method: 'Turbidity test · ~1 min',
+    needs: ['CYA bottle #9191', 'CYA view tube #9197', 'R-0013'],
+    steps: [
+      'Rinse and fill the CYA bottle (#9191) to the 7 mL mark.',
+      'Add R-0013 up to the 14 mL mark. Cap and shake for 30 seconds.',
+      'Hold the view tube (#9197) at waist height. Slowly transfer the cloudy solution while watching the black dot from above.',
+      'Stop pouring the moment the dot just disappears.',
+      'Read the liquid level on the side of the tube — that\'s your CYA in ppm.',
+    ],
+    tip: 'Good light, waist height. If the dot never disappears, CYA is below 30 ppm.',
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────
+// Sparkline
+// ─────────────────────────────────────────────────────────────────
+function Sparkline({ values, width = 60, height = 18, color = C.blue }) {
+  if (!values || values.length < 2) return <div style={{ width, height }} className="opacity-30 text-[10px]">—</div>;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const step = width / (values.length - 1);
+  const points = values.map((v, i) => {
+    const x = i * step;
+    const y = height - ((v - min) / range) * (height - 2) - 1;
+    return `${x},${y}`;
+  }).join(' ');
+  return (
+    <svg width={width} height={height} className="overflow-visible">
+      <polyline fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={points} />
+      <circle cx={(values.length - 1) * step} cy={height - ((values[values.length - 1] - min) / range) * (height - 2) - 1} r="2" fill={color} />
+    </svg>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Sheet primitive
+// ─────────────────────────────────────────────────────────────────
+function Sheet({ open, onClose, children, title, maxWidth = 'max-w-md' }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+      <div className={`bg-white rounded-t-2xl sm:rounded-2xl w-full ${maxWidth} max-h-[88vh] overflow-y-auto shadow-2xl`} onClick={e => e.stopPropagation()}>
+        {title && (
+          <div className="sticky top-0 bg-white/90 backdrop-blur border-b border-black/5 px-5 py-3.5 flex items-center justify-between">
+            <h3 className="text-[17px] font-semibold text-[#1d1d1f]">{title}</h3>
+            <button onClick={onClose} className="-mr-1 p-1 text-[#86868b]" aria-label="Close">
+              <X size={20} strokeWidth={2} />
+            </button>
+          </div>
+        )}
+        <div className="px-5 py-4 pb-7">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Welcome sheet
+// ─────────────────────────────────────────────────────────────────
+function WelcomeSheet({ open, onClose }) {
+  return (
+    <Sheet open={open} onClose={onClose} maxWidth="max-w-sm">
+      <div className="text-center pt-3">
+        <div className="w-14 h-14 mx-auto rounded-2xl bg-[#007aff] flex items-center justify-center mb-4 shadow-lg shadow-[#007aff]/30" style={{ backgroundColor: '#007aff' }}>
+          <Droplets size={28} strokeWidth={1.7} className="text-white" color="#ffffff" />
+        </div>
+        <h2 className="text-[24px] font-bold text-[#1d1d1f] tracking-tight">Welcome</h2>
+        <p className="text-[15px] text-[#86868b] mt-1.5 leading-relaxed">Your hot tub chemistry, in your pocket.</p>
+      </div>
+      <div className="mt-6 space-y-3">
+        {[
+          { icon: ListChecks, title: 'Test once a week', body: 'pH and chlorine matter most. The other four change slowly.' },
+          { icon: FlaskConical, title: 'Doses match your products', body: 'Recommendations are calculated from your specific bottles.' },
+          { icon: Beaker, title: 'Two test modes', body: 'Basic: pH + chlorine only. Full: all six.' },
+          { icon: ShieldAlert, title: 'Take it slow', body: 'When in doubt, halve the dose and re-test.' },
+        ].map((t, i) => (
+          <div key={i} className="flex gap-3 items-start">
+            <div className="w-9 h-9 rounded-full bg-[#f5f5f7] flex items-center justify-center shrink-0">
+              <t.icon size={16} strokeWidth={2} className="text-[#007aff]" />
+            </div>
+            <div className="flex-1 pt-0.5">
+              <div className="text-[14px] font-semibold text-[#1d1d1f]">{t.title}</div>
+              <div className="text-[13px] text-[#86868b] leading-snug mt-0.5">{t.body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={onClose} className="w-full mt-6 bg-[#007aff] text-white font-semibold py-3.5 rounded-xl text-[15px]" style={{ backgroundColor: '#007aff', color: '#ffffff' }}>
+        Get started
+      </button>
+    </Sheet>
+  );
+}
+
+function formatAge(ms) {
+  if (ms == null) return null;
+  const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+  if (days < 1) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return 'a week ago';
+  if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+  return `${Math.floor(days / 30)} months ago`;
+}
+
+function PickerSheet({ open, onClose, field, value, onChange, onShowTest, history }) {
+  const [typeMode, setTypeMode] = useState(false);
+  const [typedVal, setTypedVal] = useState('');
+
+  useEffect(() => {
+    // Reset typing state whenever the sheet's field changes or it reopens
+    setTypeMode(false);
+    setTypedVal(value && value !== '—' ? String(value) : '');
+  }, [field, open]);
+
+  if (!field) return null;
+  const info = PARAM_INFO[field];
+  const status = getRangeStatus(field, value);
+  const handleClear = () => { onChange(''); setTypedVal(''); };
+
+  // Most recent reading for this field
+  const lastReading = (() => {
+    if (!history || history.length === 0) return null;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const v = history[i].values?.[field];
+      if (v != null && v !== '') return { value: v, age: Date.now() - history[i].ts };
+    }
+    return null;
+  })();
+
+  const extreme = info?.extreme || [0, 9999];
+  const commitTyped = () => {
+    const n = parseFloat(typedVal);
+    if (isNaN(n)) { onChange(''); return; }
+    const clamped = Math.max(extreme[0], Math.min(extreme[1], n));
+    // Format to match wheel granularity: pH uses 1 decimal, others integer-ish
+    const formatted = field === 'ph' ? clamped.toFixed(1) : String(Math.round(clamped * 10) / 10);
+    onChange(formatted);
+    setTypedVal(formatted);
+  };
+
+  return (
+    <Sheet open={open} onClose={onClose} title={info.name} maxWidth="max-w-sm">
+      <p className="text-[14px] text-[#86868b] leading-relaxed mb-3">{info.plain}</p>
+      {info.ok && (
+        <div className="bg-[#f5f5f7] rounded-xl px-3.5 py-2.5 mb-3 flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#86868b]">Ideal range</span>
+            <span className="ml-2 text-[13px] font-semibold text-[#1d1d1f] tabular-nums">{info.ok[0]}–{info.ok[1]}{info.unit ? ` ${info.unit}` : ''}</span>
+          </div>
+        </div>
+      )}
+      {lastReading && (
+        <div className="mb-3 text-[12px] text-[#86868b] flex items-center gap-1.5 px-1">
+          <History size={11} strokeWidth={2.2} className="text-[#a1a1a6]" />
+          <span>Last reading: <span className="text-[#1d1d1f] font-semibold tabular-nums">{lastReading.value}{info?.unit ? ` ${info.unit}` : ''}</span> · {formatAge(lastReading.age)}</span>
+        </div>
+      )}
+
+      {!typeMode && (
+        <>
+          <NumberWheel values={WHEEL_VALUES[field]} value={value} onChange={onChange} status={status} />
+          <button
+            onClick={() => { setTypeMode(true); setTypedVal(value && value !== '—' ? String(value) : ''); }}
+            className="mt-2 text-[12px] text-[#007aff] font-medium px-1 py-1"
+          >
+            Type a value instead
+          </button>
+        </>
+      )}
+      {typeMode && (
+        <div className="mt-1">
+          <div className="flex items-center bg-white border border-black/10 rounded-xl px-3 py-3">
+            <input
+              autoFocus
+              type="number"
+              inputMode="decimal"
+              step={field === 'ph' ? '0.1' : '1'}
+              min={extreme[0]}
+              max={extreme[1]}
+              value={typedVal}
+              onChange={e => setTypedVal(e.target.value)}
+              onBlur={commitTyped}
+              onKeyDown={e => { if (e.key === 'Enter') { commitTyped(); e.target.blur(); } }}
+              placeholder="—"
+              className="flex-1 text-[28px] font-bold tabular-nums text-[#1d1d1f] outline-none bg-transparent"
+              style={{ color: '#1d1d1f' }}
+            />
+            {info?.unit && <span className="text-[14px] text-[#86868b] ml-2">{info.unit}</span>}
+          </div>
+          <p className="mt-1 text-[11px] text-[#a1a1a6] px-1">Range: {extreme[0]}–{extreme[1]}{info?.unit ? ` ${info.unit}` : ''}</p>
+          <button
+            onClick={() => { commitTyped(); setTypeMode(false); }}
+            className="mt-2 text-[12px] text-[#007aff] font-medium px-1 py-1"
+          >
+            Use wheel instead
+          </button>
+        </div>
+      )}
+
+      {info?.matters && (
+        <p className="text-[12px] text-[#86868b] mt-4 leading-relaxed">{info.matters}</p>
+      )}
+      {onShowTest && (
+        <button
+          onClick={onShowTest}
+          className="mt-4 w-full bg-[#f5f5f7] text-[#1d1d1f] font-medium py-3 rounded-xl text-[14px] flex items-center justify-center gap-2"
+          style={{ backgroundColor: '#f5f5f7', color: '#1d1d1f' }}
+        >
+          <Beaker size={14} strokeWidth={2.2} /> How to test {info.name}
+        </button>
+      )}
+      <div className="flex gap-2 mt-3">
+        {value && value !== '—' && (
+          <button
+            onClick={handleClear}
+            className="px-4 bg-[#f5f5f7] text-[#1d1d1f] py-3.5 rounded-xl font-medium text-[14px]"
+            style={{ backgroundColor: '#f5f5f7', color: '#1d1d1f' }}
+          >
+            Clear
+          </button>
+        )}
+        <button
+          onClick={() => { if (typeMode) commitTyped(); onClose(); }}
+          className="flex-1 bg-[#007aff] text-white font-semibold py-3.5 rounded-xl text-[15px]"
+          style={{ backgroundColor: '#007aff', color: '#ffffff' }}
+        >
+          Done
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+// Map a wheel field to the corresponding test in TESTS
+const FIELD_TO_TEST_ID = {
+  alkalinity: 'alkalinity',
+  ph: 'ph',
+  freeCl: 'chlorine',
+  totalCl: 'chlorine',
+  calcium: 'calcium',
+  cya: 'cya',
+};
+
+function VolumeSheet({ open, volume, onChange, onClose }) {
+  const [val, setVal] = useState(String(volume));
+  useEffect(() => { setVal(String(volume)); }, [volume, open]);
+  const presets = [200, 300, 400, 500, 600, 800];
+  const apply = () => {
+    const n = parseFloat(val);
+    if (!isNaN(n) && n > 0) onChange(Math.round(n));
+    onClose();
+  };
+  return (
+    <Sheet open={open} onClose={onClose} title="Hot tub size" maxWidth="max-w-sm">
+      <div className="relative mb-3">
+        <input
+          type="number" inputMode="numeric" value={val}
+          onChange={e => setVal(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && apply()}
+          className="num-input w-full bg-[#f5f5f7] border-0 rounded-xl pl-4 pr-20 py-3.5 text-[20px] font-semibold text-[#1d1d1f] focus:outline-none focus:ring-2 focus:ring-[#007aff]"
+          autoFocus
+        />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[13px] text-[#86868b] font-medium">gallons</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5 mb-5">
+        {presets.map(p => (
+          <button key={p} onClick={() => setVal(String(p))}
+            className={`px-3.5 py-1.5 text-[13px] rounded-full font-medium ${String(p) === val ? 'bg-[#007aff] text-white' : 'bg-[#f5f5f7] text-[#1d1d1f]'}`}
+            style={String(p) === val ? { backgroundColor: '#007aff', color: '#ffffff' } : {}}>
+            {p}
+          </button>
+        ))}
+      </div>
+      <button onClick={apply} className="w-full bg-[#007aff] text-white py-3.5 rounded-xl font-semibold text-[15px]" style={{ backgroundColor: '#007aff', color: '#ffffff' }}>
+        Apply
+      </button>
+    </Sheet>
+  );
+}
+
+function HistorySheet({ open, onClose, history }) {
+  return (
+    <Sheet open={open} onClose={onClose} title="Test history" maxWidth="max-w-md">
+      {history.length === 0 ? (
+        <p className="text-[14px] text-[#86868b] text-center py-8">No history yet.</p>
+      ) : (
+        <div>
+          <div className="bg-[#f5f5f7] rounded-xl p-3.5 mb-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#86868b] mb-2.5">Trends ({history.length} tests)</div>
+            <div className="grid grid-cols-2 gap-3">
+              {FIELDS_FULL.map(f => {
+                const series = history.map(h => parseFloat(h.values[f])).filter(n => !isNaN(n));
+                if (series.length < 2) return null;
+                const last = series[series.length - 1];
+                const info = PARAM_INFO[f];
+                const inRange = info?.ok && last >= info.ok[0] && last <= info.ok[1];
+                return (
+                  <div key={f} className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider text-[#86868b] font-semibold">{FIELD_LABELS[f]}</div>
+                      <div className="text-[14px] font-semibold text-[#1d1d1f]">{last}{info?.unit ? ` ${info.unit}` : ''}</div>
+                    </div>
+                    <Sparkline values={series} color={inRange ? C.green : C.orange} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#86868b] mb-2 px-1">Recent</div>
+          <div className="space-y-1.5">
+            {history.slice().reverse().slice(0, 15).map((h, i) => (
+              <div key={i} className="bg-[#f5f5f7] rounded-xl px-3.5 py-2.5">
+                <div className="text-[12px] text-[#86868b] font-medium">
+                  {new Date(h.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                  {Object.entries(h.values).filter(([_, v]) => v).map(([k, v]) => (
+                    <span key={k} className="text-[12px] text-[#1d1d1f]">
+                      <span className="text-[#86868b]">{FIELD_LABELS[k]}:</span> <span className="font-semibold">{v}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Wheel
+// ─────────────────────────────────────────────────────────────────
+const ITEM_HEIGHT = 38;
+const VISIBLE = 3;
+const BAND_COLORS = {
+  good: { bg: 'rgba(52,199,89,0.12)', border: 'rgba(52,199,89,0.45)' },
+  warn: { bg: 'rgba(255,149,0,0.12)', border: 'rgba(255,149,0,0.45)' },
+  bad:  { bg: 'rgba(255,59,48,0.12)', border: 'rgba(255,59,48,0.45)' },
+  neutral: { bg: 'rgba(0,0,0,0.04)', border: 'rgba(0,0,0,0.08)' },
+};
+
+function NumberWheel({ values, value, onChange, status }) {
+  const ref = useRef(null);
+  const scrollTimer = useRef(null);
+  const ignoreScroll = useRef(false);
+  const [centerIdx, setCenterIdx] = useState(0);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const idx = value ? Math.max(0, values.indexOf(value)) : 0;
+    ignoreScroll.current = true;
+    ref.current.scrollTop = idx * ITEM_HEIGHT;
+    setCenterIdx(idx);
+    const t = setTimeout(() => { ignoreScroll.current = false; }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const idx = value ? Math.max(0, values.indexOf(value)) : 0;
+    const currentIdx = Math.round(ref.current.scrollTop / ITEM_HEIGHT);
+    if (currentIdx !== idx) {
+      ignoreScroll.current = true;
+      ref.current.scrollTop = idx * ITEM_HEIGHT;
+      setCenterIdx(idx);
+      const t = setTimeout(() => { ignoreScroll.current = false; }, 250);
+      return () => clearTimeout(t);
+    }
+  }, [value, values]);
+
+  const handleScroll = () => {
+    if (ignoreScroll.current || !ref.current) return;
+    const raw = ref.current.scrollTop / ITEM_HEIGHT;
+    setCenterIdx(Math.max(0, Math.min(values.length - 1, Math.round(raw))));
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      if (!ref.current) return;
+      const idx = Math.round(ref.current.scrollTop / ITEM_HEIGHT);
+      const clamped = Math.max(0, Math.min(values.length - 1, idx));
+      const newVal = clamped === 0 ? '' : values[clamped];
+      if (newVal !== value) onChange(newVal);
+    }, 130);
+  };
+
+  const tapTo = (idx) => ref.current?.scrollTo({ top: idx * ITEM_HEIGHT, behavior: 'smooth' });
+  const band = BAND_COLORS[status] || BAND_COLORS.neutral;
+
+  return (
+    <div className="relative bg-[#f5f5f7] rounded-xl overflow-hidden">
+      <div className="absolute inset-x-1 top-1/2 -translate-y-1/2 rounded-md pointer-events-none z-[1] transition-colors"
+        style={{ height: ITEM_HEIGHT, background: band.bg, border: `1px solid ${band.border}` }} />
+      <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-[#f5f5f7] via-[#f5f5f7]/85 to-transparent pointer-events-none z-[2]" style={{ height: ITEM_HEIGHT - 4 }} />
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#f5f5f7] via-[#f5f5f7]/85 to-transparent pointer-events-none z-[2]" style={{ height: ITEM_HEIGHT - 4 }} />
+      <div ref={ref} onScroll={handleScroll} className="num-wheel-scroll relative overflow-y-scroll"
+        style={{ height: ITEM_HEIGHT * VISIBLE, scrollSnapType: 'y mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
+        <div style={{ height: ITEM_HEIGHT }} aria-hidden="true" />
+        {values.map((v, i) => {
+          const dist = Math.abs(i - centerIdx);
+          const opacity = dist === 0 ? 1 : dist === 1 ? 0.4 : 0.1;
+          const scale = dist === 0 ? 1 : 0.85;
+          return (
+            <button key={v} type="button" onClick={() => tapTo(i)}
+              className="w-full flex items-center justify-center text-[#1d1d1f] focus:outline-none"
+              style={{ height: ITEM_HEIGHT, scrollSnapAlign: 'center', opacity, transform: `scale(${scale})`, transition: 'opacity 120ms, transform 120ms' }}>
+              <span className="font-semibold tabular-nums" style={{ fontSize: '17px' }}>{v}</span>
+            </button>
+          );
+        })}
+        <div style={{ height: ITEM_HEIGHT }} aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Drop counter
+// ─────────────────────────────────────────────────────────────────
+function DropCounter({ test, onUseReading, currentValue }) {
+  const [count, setCount] = useState(0);
+  const ppm = test.mult ? count * test.mult : count;
+  // Resolve range status from the underlying field (e.g., 'alkalinity', 'calcium')
+  const status = test.field ? getRangeStatus(test.field, String(ppm)) : 'neutral';
+  const info = test.field ? PARAM_INFO[test.field] : null;
+  const showStatus = count > 0;
+  const statusColor =
+    status === 'good' ? '#34c759' :
+    status === 'warn' ? '#ff9500' :
+    status === 'bad' ? '#ff3b30' :
+    '#86868b';
+  const statusBg =
+    status === 'good' ? 'rgba(52,199,89,0.10)' :
+    status === 'warn' ? 'rgba(255,149,0,0.10)' :
+    status === 'bad' ? 'rgba(255,59,48,0.10)' :
+    '#f5f5f7';
+  const statusLabel =
+    status === 'good' ? 'In range' :
+    status === 'warn' ? (info && Number(ppm) < info.ok?.[0] ? 'Low' : 'High') :
+    status === 'bad' ? (info && Number(ppm) < info.ok?.[0] ? 'Low' : 'High') :
+    null;
+  return (
+    <div className="bg-[#f5f5f7] rounded-xl p-4 mt-4">
+      <div className="flex items-center gap-1.5 mb-3">
+        <Beaker size={13} strokeWidth={2} className="text-[#007aff]" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#86868b]">Drop counter</span>
+      </div>
+      {/* Live ppm reading — big, color-coded */}
+      <div
+        className="rounded-xl px-4 py-3.5 mb-3 transition-colors"
+        style={{ backgroundColor: showStatus ? statusBg : 'rgba(0,0,0,0.03)' }}
+      >
+        <div className="flex items-baseline justify-between mb-0.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#86868b]">Live reading</span>
+          {showStatus && statusLabel && (
+            <span className="text-[11px] font-bold uppercase tracking-wider tabular-nums" style={{ color: statusColor }}>{statusLabel}</span>
+          )}
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-[44px] font-bold tabular-nums leading-none" style={{ color: showStatus ? statusColor : '#1d1d1f' }}>{ppm}</span>
+          <span className="text-[15px] text-[#86868b] font-medium">{info?.unit || 'ppm'}</span>
+        </div>
+        <div className="mt-1 text-[12px] text-[#86868b]">
+          {count} drop{count !== 1 ? 's' : ''}{test.mult ? ` × ${test.mult} ppm each` : ''}
+          {info?.ok && <span className="ml-1.5">· target {info.ok[0]}–{info.ok[1]}</span>}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setCount(c => c + 1)}
+        className="w-full bg-[#007aff] active:bg-[#0062cc] text-white font-semibold py-4 rounded-xl flex items-center justify-center gap-2 text-[17px] mb-2"
+        style={{ backgroundColor: '#007aff', color: '#ffffff', WebkitTapHighlightColor: 'transparent' }}
+      >
+        +&nbsp;&nbsp;Add drop
+      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => setCount(c => Math.max(0, c - 1))}
+          disabled={count === 0}
+          className="bg-white border border-black/5 text-[#1d1d1f] py-3 rounded-xl font-medium text-[14px] disabled:opacity-30"
+          style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+        >
+          −&nbsp;&nbsp;Undo
+        </button>
+        <button
+          type="button"
+          onClick={() => setCount(0)}
+          disabled={count === 0}
+          className="bg-white border border-black/5 text-[#1d1d1f] py-3 rounded-xl font-medium text-[14px] disabled:opacity-30 flex items-center justify-center gap-1.5"
+          style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+        >
+          <RotateCcw size={14} strokeWidth={2} />
+          Reset
+        </button>
+      </div>
+      {count > 0 && test.field && (
+        <button
+          type="button"
+          onClick={() => onUseReading(test.field, String(ppm))}
+          className="w-full mt-2 bg-white border border-[#007aff]/25 text-[#007aff] py-3 rounded-xl font-semibold text-[14px] flex items-center justify-center gap-1.5"
+          style={{ backgroundColor: '#ffffff', color: '#007aff' }}
+        >
+          <Check size={14} strokeWidth={2.5} />
+          Use {ppm} ppm{currentValue && currentValue === String(ppm) ? ' (saved)' : ''}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Test guide
+// ─────────────────────────────────────────────────────────────────
+function TestGuide({ onBack, onUseReading, values, initialActiveId }) {
+  const [activeId, setActiveId] = useState(initialActiveId || TESTS[0].id);
+  const activeIdx = Math.max(0, TESTS.findIndex(t => t.id === activeId));
+  const pillRefs = useRef({});
+
+  // Keep the active pill scrolled into view when activeId changes
+  useEffect(() => {
+    const pill = pillRefs.current[activeId];
+    if (pill && pill.scrollIntoView) {
+      pill.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }, [activeId]);
+
+  return (
+    <>
+      <header className="mb-5">
+        <button onClick={onBack} className="inline-flex items-center gap-1 text-[#007aff] mb-2 -ml-1 px-1 py-1 text-[15px] font-medium">
+          <ArrowLeft size={18} strokeWidth={2.2} /> Back
+        </button>
+        <h1 className="text-[#1d1d1f] text-[34px] font-bold tracking-tight leading-tight">How to test</h1>
+        <p className="mt-1 text-[#86868b] text-[15px] leading-snug">Step-by-step using the Taylor K-1005 DPD kit.</p>
+      </header>
+      <div className="mb-4 rounded-xl bg-[#007aff]/8 border border-[#007aff]/15 px-3.5 py-3 flex items-start gap-2">
+        <Lightbulb size={15} strokeWidth={2} className="text-[#007aff] mt-0.5 shrink-0" />
+        <div className="text-[13px] text-[#1d1d1f] leading-snug">
+          Sample 18″ below the surface, away from jets. Rinse cells before and after each test. Hold reagent bottles vertical when dispensing.
+        </div>
+      </div>
+      <div className="overflow-x-auto -mx-4 px-4 mb-3 num-wheel-scroll">
+        <div className="flex gap-1.5 pb-1">
+          {TESTS.map(t => (
+            <button
+              key={t.id}
+              ref={el => { pillRefs.current[t.id] = el; }}
+              onClick={() => setActiveId(t.id)}
+              className={`shrink-0 px-3.5 py-2 rounded-full text-[13px] font-semibold ${activeId === t.id ? 'bg-[#1d1d1f] text-white' : 'bg-[#f5f5f7] text-[#1d1d1f]'}`}
+              style={activeId === t.id ? { backgroundColor: '#1d1d1f', color: '#ffffff' } : {}}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Pager
+        currentPage={activeIdx}
+        onPageChange={(idx) => { const t = TESTS[idx]; if (t) setActiveId(t.id); }}
+      >
+        {TESTS.map((test, i) => {
+          const next = TESTS[i + 1];
+          return (
+            <article key={test.id} className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
+              <div className="px-4 py-4 sm:px-5 sm:py-5">
+                <h2 className="text-[#1d1d1f] text-[22px] font-bold tracking-tight leading-tight">{test.title}</h2>
+                <p className="text-[12px] text-[#86868b] mt-0.5 uppercase tracking-wider font-semibold">{test.method}</p>
+                <div className="mt-4 rounded-xl bg-[#f5f5f7] px-3.5 py-3">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <ListChecks size={13} strokeWidth={2} className="text-[#86868b]" />
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-[#86868b]">You'll need</span>
+                  </div>
+                  <ul className="space-y-1">
+                    {test.needs.map((n, idx) => (
+                      <li key={idx} className="text-[13px] text-[#1d1d1f] leading-snug flex gap-2">
+                        <span className="text-[#a1a1a6] select-none">•</span><span>{n}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <ol className="mt-4 space-y-3">
+                  {test.steps.map((s, idx) => (
+                    <li key={idx} className="flex gap-3">
+                      <span className="shrink-0 w-7 h-7 rounded-full bg-[#1d1d1f] text-white flex items-center justify-center text-[13px] font-bold" style={{ backgroundColor: '#1d1d1f', color: '#ffffff' }}>{idx + 1}</span>
+                      <p className="text-[14px] text-[#1d1d1f] leading-relaxed pt-0.5">{s}</p>
+                    </li>
+                  ))}
+                </ol>
+                {test.mult && <DropCounter test={test} onUseReading={onUseReading} currentValue={values[test.field]} />}
+                <div className="mt-4 rounded-xl bg-[#ff9500]/10 border border-[#ff9500]/20 px-3.5 py-3 flex items-start gap-2">
+                  <Lightbulb size={14} strokeWidth={2} className="text-[#ff9500] mt-0.5 shrink-0" />
+                  <p className="text-[13px] text-[#1d1d1f] leading-snug">{test.tip}</p>
+                </div>
+                {next && (
+                  <button
+                    onClick={() => { setActiveId(next.id); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    className="mt-5 w-full bg-[#f5f5f7] text-[#1d1d1f] py-3 rounded-xl font-semibold text-[14px] flex items-center justify-center gap-1.5"
+                  >
+                    Next: {next.label} <ChevronRight size={16} strokeWidth={2.5} />
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </Pager>
+
+      <p className="mt-4 px-2 text-[11px] text-[#a1a1a6] leading-snug text-center">
+        Procedures from the official Taylor K-1005 manual. Always read reagent labels.
+      </p>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// My Chemicals — read-only reference list
+// ─────────────────────────────────────────────────────────────────
+function MyChemicalsPage({ onBack }) {
+  return (
+    <>
+      <header className="mb-5">
+        <button onClick={onBack} className="inline-flex items-center gap-1 text-[#007aff] mb-2 -ml-1 px-1 py-1 text-[15px] font-medium">
+          <ArrowLeft size={18} strokeWidth={2.2} /> Back
+        </button>
+        <h1 className="text-[#1d1d1f] text-[34px] font-bold tracking-tight leading-tight">My chemicals</h1>
+        <p className="mt-1 text-[#86868b] text-[15px] leading-snug">
+          Your products and label dosing. Recommendations are calculated from these.
+        </p>
+      </header>
+
+      <div className="space-y-3">
+        {MY_CHEMICALS.map(c => (
+          <article key={c.id} className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
+            <div className="px-4 py-4">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <h3 className="text-[16px] font-semibold text-[#1d1d1f] leading-tight">{c.label}</h3>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[#34c759]">Saved</span>
+              </div>
+              <div className="text-[14px] text-[#1d1d1f] font-medium">{c.productName}</div>
+              <div className="text-[12px] text-[#86868b] mt-0.5">{c.activeIngredient}</div>
+
+              <div className="mt-3 bg-[#f5f5f7] rounded-xl px-3.5 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#86868b] mb-0.5">Label dose</div>
+                <div className="text-[12.5px] text-[#1d1d1f] leading-snug">{c.labelDose}</div>
+              </div>
+
+              <div className="text-[11px] text-[#86868b] mt-2.5 font-medium tabular-nums">
+                {c.tspFactor} tsp per 100 gal per {c.unit} {c.unitName}
+              </div>
+              <div className="text-[11.5px] text-[#86868b] mt-1.5 leading-snug">
+                <span className="font-medium text-[#1d1d1f]">Used when:</span> {c.usedFor}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Recommendation card
+// ─────────────────────────────────────────────────────────────────
+const STATUS_COLORS = {
+  ok: { dot: '#34c759', bg: '#34c75915', text: '#1d1d1f', label: 'In range' },
+  low: { dot: '#ff9500', bg: '#ff950015', text: '#1d1d1f', label: 'Low' },
+  high: { dot: '#ff3b30', bg: '#ff3b3015', text: '#1d1d1f', label: 'High' },
+};
+
+// Parse **...** markers into bold spans
+function renderInlineBold(text) {
+  if (!text) return null;
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="font-semibold text-[#1d1d1f]">{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
+// Renders advice as a paragraph (single item) or a bulleted list (multiple items)
+function renderAdvice(advice, dimmed = false) {
+  if (!advice) return null;
+  const arr = Array.isArray(advice) ? advice : [advice];
+  const textColor = dimmed ? 'text-[#86868b]' : 'text-[#1d1d1f]';
+
+  if (arr.length === 1) {
+    return <p className={`text-[14px] mt-2.5 leading-snug ${textColor}`}>{renderInlineBold(arr[0])}</p>;
+  }
+  return (
+    <ul className={`text-[14px] mt-2.5 leading-snug ${textColor} space-y-1.5`}>
+      {arr.map((item, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="text-[#a1a1a6] select-none shrink-0" aria-hidden>•</span>
+          <span className="flex-1">{renderInlineBold(item)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function formatCountdown(secs) {
+  if (secs <= 0) return '0:00';
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function RecommendationCard({ r, stepState, onMarkDone, onUnMarkDone, now }) {
+  const [mathOpen, setMathOpen] = useState(false);
+  const sc = STATUS_COLORS[r.status] || STATUS_COLORS.ok;
+  const JetIcon = r.jets?.icon;
+  const isDone = stepState?.status === 'done';
+  const deadline = stepState?.deadlineAt;
+  const completedAt = stepState?.completedAt;
+  const remainingSec = deadline ? Math.max(0, Math.floor((deadline - now) / 1000)) : 0;
+  const isWaiting = isDone && deadline && remainingSec > 0;
+  const isReady = isDone && deadline && remainingSec === 0;
+  // Show Undo for 5 seconds after marking done
+  const justMarked = isDone && completedAt && (now - completedAt) < 5000;
+  const undoSecondsLeft = justMarked ? Math.ceil((5000 - (now - completedAt)) / 1000) : 0;
+
+  return (
+    <article className={`bg-white rounded-2xl border border-black/5 overflow-hidden ${isDone ? 'opacity-60' : ''}`}>
+      <div className="px-4 py-3.5">
+        <div className="flex items-start gap-3">
+          {r.step ? (
+            <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[13px] font-bold ${isDone ? 'bg-[#34c759] text-white' : 'bg-[#1d1d1f] text-white'}`} style={{ backgroundColor: isDone ? '#34c759' : '#1d1d1f', color: '#ffffff' }}>
+              {isDone ? <Check size={14} strokeWidth={3} /> : r.step}
+            </div>
+          ) : r.merged ? (
+            <div className="shrink-0 w-7 h-7 rounded-full bg-[#f5f5f7] flex items-center justify-center text-[10px] font-bold uppercase tracking-wider text-[#86868b]">Auto</div>
+          ) : (
+            <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center" style={{ background: sc.bg }}>
+              <span className="w-2 h-2 rounded-full" style={{ background: sc.dot }} />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <h3 className={`text-[15px] font-semibold leading-tight ${isDone ? 'line-through text-[#86868b]' : 'text-[#1d1d1f]'}`}>{r.label}</h3>
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider" style={{ color: sc.dot }}>{sc.label}</span>
+            </div>
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <span className="text-[22px] font-bold text-[#1d1d1f] leading-none tabular-nums">{r.value}</span>
+              {r.unit && <span className="text-[12px] text-[#86868b] font-medium">{r.unit}</span>}
+              {r.range && <span className="text-[12px] text-[#86868b]">target {r.range}</span>}
+            </div>
+          </div>
+        </div>
+        {renderAdvice(r.advice, isDone)}
+
+        {!isDone && r.jets && JetIcon && (
+          <div className="mt-2 inline-flex items-start gap-1.5 bg-[#f5f5f7] rounded-lg px-2.5 py-1">
+            <JetIcon size={12} strokeWidth={2} className="text-[#1d1d1f] mt-0.5 shrink-0" />
+            <div className="text-[12px] leading-snug">
+              <span className="font-semibold text-[#1d1d1f]">{r.jets.label}</span>
+              {r.jetsNote && <span className="text-[#86868b]"> · {r.jetsNote}</span>}
+            </div>
+          </div>
+        )}
+        {!isDone && r.math && (
+          <button onClick={() => setMathOpen(o => !o)} className="mt-2 inline-flex items-center gap-1 text-[12px] text-[#007aff] font-medium">
+            <Info size={12} strokeWidth={2.2} />
+            {mathOpen ? 'Hide math' : 'Why this dose?'}
+            <ChevronDown size={12} strokeWidth={2.2} className={`${mathOpen ? 'rotate-180' : ''}`} />
+          </button>
+        )}
+        {mathOpen && r.math && (
+          <p className="mt-1.5 text-[12px] text-[#86868b] leading-snug bg-[#f5f5f7] rounded-lg px-3 py-2">{r.math}</p>
+        )}
+        {isWaiting && (
+          <div className="mt-3 rounded-xl bg-[#007aff]/10 border border-[#007aff]/15 px-3 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock size={14} strokeWidth={2} className="text-[#007aff]" />
+              <span className="text-[13px] text-[#1d1d1f] font-medium">Waiting · {r.waitAfter}</span>
+            </div>
+            <span className="text-[16px] font-bold text-[#007aff] tabular-nums">{formatCountdown(remainingSec)}</span>
+          </div>
+        )}
+        {isReady && (
+          <div className="mt-3 rounded-xl bg-[#34c759]/10 border border-[#34c759]/20 px-3 py-2 flex items-center gap-2">
+            <Check size={14} strokeWidth={2.5} className="text-[#34c759]" />
+            <span className="text-[13px] text-[#1d1d1f] font-medium">Ready for the next step.</span>
+          </div>
+        )}
+        {isDone && !deadline && (
+          <div className="mt-2 flex items-center gap-3">
+            <span className="inline-flex items-center gap-1 text-[12px] text-[#34c759] font-medium">
+              <Check size={12} strokeWidth={2.5} /> Done
+            </span>
+            {justMarked && onUnMarkDone && (
+              <button
+                onClick={() => onUnMarkDone(r)}
+                className="text-[12px] text-[#007aff] font-medium tabular-nums"
+              >
+                Undo ({undoSecondsLeft})
+              </button>
+            )}
+          </div>
+        )}
+        {isDone && deadline && justMarked && onUnMarkDone && (
+          <div className="mt-2">
+            <button
+              onClick={() => onUnMarkDone(r)}
+              className="text-[12px] text-[#007aff] font-medium tabular-nums"
+            >
+              Undo ({undoSecondsLeft})
+            </button>
+          </div>
+        )}
+        {r.step && !isDone && (
+          <button
+            onClick={() => onMarkDone(r)}
+            className="mt-3 w-full bg-[#1d1d1f] text-white py-2.5 rounded-xl font-semibold text-[14px]"
+            style={{ backgroundColor: '#1d1d1f', color: '#ffffff' }}
+          >
+            Mark done
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function ValueRow({ field, value, onTap, isFirst }) {
+  const info = PARAM_INFO[field];
+  const status = getRangeStatus(field, value);
+  const dotColor =
+    status === 'good' ? '#34c759' :
+    status === 'warn' ? '#ff9500' :
+    status === 'bad' ? '#ff3b30' :
+    '#d1d1d6';
+  const hasValue = value && value !== '—';
+  return (
+    <button
+      type="button"
+      onClick={onTap}
+      className={`w-full flex items-center px-4 py-3.5 bg-white active:bg-[#f5f5f7] transition-colors ${!isFirst ? 'border-t border-black/5' : ''}`}
+      style={{ backgroundColor: '#ffffff', WebkitTapHighlightColor: 'transparent' }}
+    >
+      <span className="w-2 h-2 rounded-full mr-3 shrink-0" style={{ backgroundColor: dotColor }} />
+      <span className="flex-1 text-left text-[15px] font-medium text-[#1d1d1f]">
+        {FIELD_LABELS[field]}
+      </span>
+      <span className="flex items-center gap-1">
+        {hasValue ? (
+          <>
+            <span className="text-[15px] font-semibold text-[#1d1d1f] tabular-nums">{value}</span>
+            {info?.unit && <span className="text-[12px] text-[#86868b]">{info.unit}</span>}
+          </>
+        ) : (
+          <span className="text-[14px] text-[#a1a1a6]">Tap to set</span>
+        )}
+        <ChevronRight size={14} className="text-[#c7c7cc] ml-0.5" strokeWidth={2.5} />
+      </span>
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Main
+// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// Pager — horizontal scroll-snap with bidirectional sync
+// ─────────────────────────────────────────────────────────────────
+function Pager({ currentPage, onPageChange, children }) {
+  const containerRef = useRef(null);
+  const pageRefs = useRef([]);
+  const scrollTimer = useRef(null);
+  const [height, setHeight] = useState('auto');
+
+  const pages = (Array.isArray(children) ? children : [children]).filter(c => c !== false && c != null);
+
+  // Track current page's height with ResizeObserver
+  useEffect(() => {
+    const el = pageRefs.current[currentPage];
+    if (!el) return;
+    const update = () => setHeight(`${el.offsetHeight}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [currentPage, pages.length]);
+
+  // Scroll container to match currentPage when state changes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const width = container.clientWidth;
+    if (width === 0) return;
+    const target = currentPage * width;
+    if (Math.abs(container.scrollLeft - target) > 5) {
+      container.scrollTo({ left: target, behavior: 'smooth' });
+    }
+  }, [currentPage, pages.length]);
+
+  // Detect manual swipe with debounced scroll handler
+  const handleScroll = () => {
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const width = container.clientWidth;
+      if (width === 0) return;
+      const newPage = Math.round(container.scrollLeft / width);
+      if (newPage !== currentPage && newPage >= 0 && newPage < pages.length) {
+        onPageChange(newPage);
+      }
+    }, 80);
+  };
+
+  return (
+    <div style={{ height, transition: 'height 220ms ease', overflow: 'hidden' }}>
+      <style>{`.pager-scroll::-webkit-scrollbar{display:none}`}</style>
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="pager-scroll overflow-x-scroll snap-x snap-mandatory -mx-4"
+        style={{
+          scrollSnapType: 'x mandatory',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'none',
+        }}
+      >
+        <div className="flex items-start">
+          {pages.map((page, i) => (
+            <div
+              key={i}
+              ref={el => { pageRefs.current[i] = el; }}
+              className="w-full shrink-0 px-4"
+              style={{ scrollSnapAlign: 'center' }}
+            >
+              {page}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Fields panel — shared by Full and Basic pages
+function FieldsPage({ fields, values, onTapField, onAnalyze, onReset, showReset }) {
+  return (
+    <>
+      <section className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
+        {fields.map((f, i) => (
+          <ValueRow
+            key={f}
+            field={f}
+            value={values[f]}
+            onTap={() => onTapField(f)}
+            isFirst={i === 0}
+          />
+        ))}
+      </section>
+      <div className="flex gap-2.5 mt-3">
+        <button
+          type="button" onClick={onAnalyze}
+          className="flex-1 bg-[#007aff] text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 text-[15px]"
+          style={{ backgroundColor: '#007aff', color: '#ffffff' }}
+        >
+          Analyze water
+        </button>
+        {showReset && (
+          <button onClick={onReset} className="bg-white border border-black/5 text-[#1d1d1f] py-3.5 px-3.5 rounded-xl" style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }} aria-label="Reset">
+            <RotateCcw size={16} strokeWidth={2} />
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+function HotTubChemistry() {
+  const initialValues = useMemo(
+    () => Object.fromEntries(FIELDS_FULL.map(f => [f, ''])), []
+  );
+
+  const [view, setView] = useState('analyze');
+  const [volume, setVolume] = useState(390);
+  // activePage: 'full' | 'basic' | 'results'  (which page the user is on)
+  // layout: 'basic' (default → [Full, Basic, Results]) | 'full' (→ [Basic, Full, Results])
+  // Layout flips at Analyze time based on which entry page they came from.
+  const [activePage, setActivePage] = useState('basic');
+  const [layout, setLayout] = useState('basic');
+  const [values, setValues] = useState(initialValues);
+  const [results, setResults] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [volumeOpen, setVolumeOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [pickerField, setPickerField] = useState(null);
+  const [pendingTestId, setPendingTestId] = useState(null);
+
+  const [stepStates, setStepStates] = useState({});
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const i = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(i);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      const v = await storageGet(KEY.volume);
+      if (v) { const n = parseFloat(v); if (!isNaN(n)) setVolume(n); }
+      const m = await storageGet(KEY.mode);
+      if (m === 'full') setActivePage('full');
+      else if (m === 'daily') setActivePage('basic');
+      const h = await storageGet(KEY.history);
+      if (h) {
+        try { const arr = JSON.parse(h); if (Array.isArray(arr)) setHistory(arr); } catch {}
+      }
+    })();
+  }, []);
+
+  useEffect(() => { storageSet(KEY.volume, String(volume)); }, [volume]);
+  // Persist Full/Basic preference (skip Results — not a saved mode)
+  useEffect(() => {
+    if (activePage === 'full') storageSet(KEY.mode, 'full');
+    else if (activePage === 'basic') storageSet(KEY.mode, 'daily');
+  }, [activePage]);
+
+  const dismissWelcome = () => {
+    setWelcomeOpen(false);
+    storageSet(KEY.welcome, 'shown');
+  };
+
+  const handleChange = (k, val) => setValues(p => ({ ...p, [k]: val }));
+
+  const handleAnalyze = () => {
+    const wasOn = activePage; // capture which entry page they came from
+    const r = analyze(values, volume);
+    setResults(r);
+    setStepStates({});
+    const anyValue = Object.values(values).some(v => v !== '');
+    if (anyValue) {
+      const entry = { ts: Date.now(), values: { ...values }, volume };
+      setHistory(prev => {
+        const next = [...prev, entry].slice(-30);
+        storageSet(KEY.history, JSON.stringify(next));
+        return next;
+      });
+    }
+    setActivePage('results'); // Swipe to Results — gives clear visual feedback
+    // Swap layout AFTER the scroll animation completes so the transition itself
+    // looks natural (passing through pages in their current order). Once on Results,
+    // re-arrange so the page they came from sits adjacent to Results for easy swipe-back.
+    setTimeout(() => {
+      if (wasOn === 'full') setLayout('full');
+      else if (wasOn === 'basic') setLayout('basic');
+    }, 450);
+  };
+
+  const handleReset = () => {
+    setValues(initialValues); setResults(null); setStepStates({});
+    if (activePage === 'results') {
+      // Drop back to the entry page that's adjacent to Results in the current layout
+      setActivePage(layout === 'basic' ? 'basic' : 'full');
+    }
+  };
+
+  useEffect(() => {
+    if (results) setResults(analyze(values, volume));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [volume]);
+
+  const onMarkDone = (r) => {
+    const at = Date.now();
+    const deadlineAt = r.waitMinutes ? at + r.waitMinutes * 60 * 1000 : null;
+    setStepStates(prev => ({ ...prev, [r.key]: { status: 'done', completedAt: at, deadlineAt } }));
+  };
+
+  const onUnMarkDone = (r) => {
+    setStepStates(prev => {
+      const next = { ...prev };
+      delete next[r.key];
+      return next;
+    });
+  };
+
+  const useReadingFromTest = (field, valueStr) => {
+    setValues(prev => ({ ...prev, [field]: valueStr }));
+    setView('analyze');
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+  };
+
+  // Find the soonest active timer (a Mark-done step with a wait deadline still in the future)
+  const activeTimer = (() => {
+    if (!results) return null;
+    let soonest = null;
+    for (const r of results) {
+      const s = stepStates[r.key];
+      if (s?.status === 'done' && s.deadlineAt && s.deadlineAt > now) {
+        if (!soonest || s.deadlineAt < soonest.deadlineAt) {
+          soonest = { key: r.key, label: r.label, deadlineAt: s.deadlineAt };
+        }
+      }
+    }
+    return soonest;
+  })();
+  const activeTimerSecLeft = activeTimer ? Math.max(0, Math.floor((activeTimer.deadlineAt - now) / 1000)) : 0;
+
+  const sanityWarnings = results ? getSanityWarnings(values) : [];
+  const issues = results ? results.filter(r => r.status !== 'ok') : [];
+  const stepCount = results ? results.filter(r => r.step).length : 0;
+  const completedCount = results ? results.filter(r => r.step && stepStates[r.key]?.status === 'done').length : 0;
+  const anyValueEntered = Object.values(values).some(v => v !== '');
+
+  const lastTestAge = history.length > 0 ? (Date.now() - history[history.length - 1].ts) : null;
+  const daysSinceTest = lastTestAge ? Math.floor(lastTestAge / (1000 * 60 * 60 * 24)) : null;
+  const showTestReminder = daysSinceTest != null && daysSinceTest >= 7 && view === 'analyze' && !results;
+
+  return (
+    <div className="min-h-screen w-full" style={{ background: C.bg, fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif', color: C.primary }}>
+      <style>{`
+        .num-input::-webkit-outer-spin-button, .num-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .num-input { -moz-appearance: textfield; }
+        .num-wheel-scroll::-webkit-scrollbar { display: none; }
+        body { -webkit-font-smoothing: antialiased; }
+      `}</style>
+
+      <div className="max-w-2xl mx-auto px-4 py-5 sm:py-10">
+        {view === 'test' ? (
+          <TestGuide
+            onBack={() => { setView('analyze'); setPendingTestId(null); }}
+            onUseReading={useReadingFromTest}
+            values={values}
+            initialActiveId={pendingTestId}
+          />
+        ) : view === 'chemicals' ? (
+          <MyChemicalsPage onBack={() => setView('analyze')} />
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setVolumeOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-[#1d1d1f] bg-white border border-black/5 rounded-full pl-2.5 pr-2.5 py-1.5 shadow-sm"
+                  style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+                >
+                  <span className="text-[12px] font-semibold tabular-nums">{volume} gal</span>
+                  <Pencil size={11} strokeWidth={2.2} className="text-[#86868b]" />
+                </button>
+                {activeTimer && (
+                  <button
+                    onClick={() => setActivePage('results')}
+                    className="inline-flex items-center gap-1.5 text-white bg-[#007aff] rounded-full pl-2.5 pr-3 py-1.5 shadow-sm animate-pulse"
+                    style={{ backgroundColor: '#007aff', color: '#ffffff' }}
+                  >
+                    <Clock size={12} strokeWidth={2.4} />
+                    <span className="text-[12px] font-bold tabular-nums">{formatCountdown(activeTimerSecLeft)}</span>
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setView('chemicals')}
+                  className="inline-flex items-center gap-1.5 text-[#1d1d1f] bg-white border border-black/5 rounded-full pl-2.5 pr-3 py-1.5 shadow-sm"
+                  style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+                >
+                  <FlaskConical size={13} strokeWidth={2.2} className="text-[#86868b]" />
+                  <span className="text-[12px] font-semibold">Chems</span>
+                </button>
+                <button
+                  onClick={() => setView('test')}
+                  className="inline-flex items-center gap-1.5 text-[#1d1d1f] bg-white border border-black/5 rounded-full pl-2.5 pr-3 py-1.5 shadow-sm"
+                  style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+                >
+                  <Beaker size={13} strokeWidth={2.2} className="text-[#86868b]" />
+                  <span className="text-[12px] font-semibold">Test</span>
+                </button>
+              </div>
+            </div>
+
+            <header className="mb-4">
+              <h1 className="text-[#1d1d1f] text-[34px] font-bold tracking-tight leading-tight">Water chemistry</h1>
+              <p className="mt-1 text-[#86868b] text-[15px] leading-snug">
+                {activePage === 'full' ? 'Tap each row to set a reading.' :
+                 activePage === 'basic' ? 'Basic check — pH and chlorine.' :
+                 'Add the chemicals in the order shown.'}
+              </p>
+            </header>
+
+            {(() => {
+              // Build page order from layout, append Results when available
+              const pageNames = layout === 'basic' ? ['full', 'basic'] : ['basic', 'full'];
+              if (results && results.length > 0) pageNames.push('results');
+              const currentPageIdx = Math.max(0, pageNames.indexOf(activePage));
+              const labelFor = (n) => n === 'full' ? 'Full' : n === 'basic' ? 'Basic' : 'Results';
+
+              return (
+                <>
+                  <div className="sticky top-0 z-10 -mx-4 px-4 pb-3 pt-2 mb-1" style={{ backgroundColor: 'rgba(245,245,247,0.92)', backdropFilter: 'saturate(180%) blur(12px)', WebkitBackdropFilter: 'saturate(180%) blur(12px)' }}>
+                    <div className="bg-[#e9e9eb] rounded-full p-0.5 inline-flex text-[13px] font-semibold">
+                      {pageNames.map((name, i) => (
+                        <button key={name} onClick={() => setActivePage(name)}
+                          className={`px-4 py-1.5 rounded-full transition-colors ${activePage === name ? 'bg-white text-[#1d1d1f] shadow-sm' : 'text-[#86868b]'}`}
+                          style={activePage === name ? { backgroundColor: '#ffffff', color: '#1d1d1f' } : { color: '#86868b' }}>
+                          {labelFor(name)}
+                        </button>
+                      ))}
+                    </div>
+                    {pageNames.length > 1 && (
+                      <div className="flex items-center gap-1.5 mt-2 ml-1">
+                        {pageNames.map((name, i) => (
+                          <span
+                            key={name}
+                            className="rounded-full transition-all"
+                            style={{
+                              width: currentPageIdx === i ? 16 : 5,
+                              height: 5,
+                              backgroundColor: currentPageIdx === i ? '#1d1d1f' : '#c7c7cc',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {showTestReminder && (
+                    <div className="mb-4 rounded-2xl bg-[#007aff]/10 border border-[#007aff]/15 px-4 py-3 flex items-start gap-2.5">
+                      <Bell size={15} strokeWidth={2} className="text-[#007aff] mt-0.5 shrink-0" />
+                      <div className="text-[13px] text-[#1d1d1f] leading-snug">
+                        <span className="font-semibold">Time to test.</span> It's been {daysSinceTest} days since your last test.
+                      </div>
+                    </div>
+                  )}
+
+                  <Pager
+                    currentPage={currentPageIdx}
+                    onPageChange={(idx) => { const n = pageNames[idx]; if (n) setActivePage(n); }}
+                  >
+                    {pageNames.map(name => {
+                      if (name === 'full') {
+                        return (
+                          <FieldsPage
+                            key="full"
+                            fields={FIELDS_FULL}
+                            values={values}
+                            onTapField={setPickerField}
+                            onAnalyze={handleAnalyze}
+                            onReset={handleReset}
+                            showReset={anyValueEntered || !!results}
+                          />
+                        );
+                      }
+                      if (name === 'basic') {
+                        return (
+                          <FieldsPage
+                            key="basic"
+                            fields={FIELDS_BASIC}
+                            values={values}
+                            onTapField={setPickerField}
+                            onAnalyze={handleAnalyze}
+                            onReset={handleReset}
+                            showReset={anyValueEntered || !!results}
+                          />
+                        );
+                      }
+                      // Results
+                      return (
+                        <div key="results">
+                          <div className="flex items-baseline justify-between mb-3 px-1">
+                            <h2 className="text-[#1d1d1f] text-[22px] font-bold tracking-tight">
+                              {issues.length === 0 ? 'All clear' : 'Recommendations'}
+                            </h2>
+                            {stepCount > 0 && (
+                              <span className="text-[12px] text-[#86868b] font-medium tabular-nums">{completedCount}/{stepCount} done</span>
+                            )}
+                          </div>
+
+                          {sanityWarnings.length > 0 && (
+                            <div className="mb-3 rounded-2xl bg-[#ff9500]/10 border border-[#ff9500]/20 px-4 py-3">
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle size={15} strokeWidth={2} className="text-[#ff9500] mt-0.5 shrink-0" />
+                                <div className="text-[13px] text-[#1d1d1f] leading-snug">
+                                  <div className="font-semibold mb-1">Unusual reading{sanityWarnings.length > 1 ? 's' : ''}</div>
+                                  <ul className="space-y-0.5">{sanityWarnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {issues.length === 0 && (
+                            <div className="mb-3 rounded-2xl bg-[#34c759]/10 border border-[#34c759]/20 px-4 py-3.5 flex items-start gap-2.5">
+                              <Check size={16} strokeWidth={2.5} className="text-[#34c759] mt-0.5 shrink-0" />
+                              <div className="text-[13px] text-[#1d1d1f] leading-snug">
+                                <div className="font-semibold mb-0.5">Water's in great shape.</div>
+                                Nothing to add right now. Test again in 2–3 days, or after a soak.
+                              </div>
+                            </div>
+                          )}
+
+                          {issues.length > 1 && (
+                            <div className="mb-3 rounded-2xl bg-[#f5f5f7] px-4 py-3 flex items-start gap-2.5">
+                              <Lightbulb size={15} strokeWidth={2} className="text-[#86868b] mt-0.5 shrink-0" />
+                              <div className="text-[13px] text-[#1d1d1f] leading-snug">
+                                Add chemicals in the order shown when starting fresh. Already done one? Tap <span className="font-semibold">Mark done</span> on it — steps can be checked off in any order.
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="space-y-2.5">
+                            {results.map((r) => (
+                              <RecommendationCard
+                                key={r.key} r={r}
+                                stepState={stepStates[r.key]}
+                                onMarkDone={onMarkDone}
+                                onUnMarkDone={onUnMarkDone}
+                                now={now}
+                              />
+                            ))}
+                          </div>
+
+                          <p className="mt-4 px-2 text-[11px] text-[#a1a1a6] leading-snug">
+                            Add chemicals to flowing water. Re-test 30 min after the last step. When in doubt, halve the dose.
+                          </p>
+
+                          <button
+                            onClick={handleReset}
+                            className="mt-4 w-full bg-white border border-black/5 text-[#1d1d1f] font-medium py-3 rounded-xl text-[14px]"
+                            style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+                          >
+                            Reset and start over
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </Pager>
+                </>
+              );
+            })()}
+
+            <footer className="mt-8 pt-4 border-t border-black/5 flex items-center justify-between text-[#a1a1a6]">
+              <span className="text-[11px]">{volume} gal · {MY_CHEMICALS.length} chemicals saved</span>
+              {history.length > 0 && (
+                <button onClick={() => setHistoryOpen(true)} className="text-[11px] text-[#007aff] font-medium">
+                  History ({history.length})
+                </button>
+              )}
+            </footer>
+          </>
+        )}
+      </div>
+
+      <WelcomeSheet open={welcomeOpen} onClose={dismissWelcome} />
+      <VolumeSheet open={volumeOpen} volume={volume} onChange={setVolume} onClose={() => setVolumeOpen(false)} />
+      <HistorySheet open={historyOpen} onClose={() => setHistoryOpen(false)} history={history} />
+      <PickerSheet
+        open={!!pickerField}
+        onClose={() => setPickerField(null)}
+        field={pickerField}
+        value={pickerField ? values[pickerField] : ''}
+        onChange={(v) => pickerField && handleChange(pickerField, v)}
+        history={history}
+        onShowTest={pickerField && FIELD_TO_TEST_ID[pickerField] ? () => {
+          setPendingTestId(FIELD_TO_TEST_ID[pickerField]);
+          setPickerField(null);
+          setView('test');
+          setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+        } : null}
+      />
+    </div>
+  );
+}
+
+
+const root = createRoot(document.getElementById('root'));
+root.render(<HotTubChemistry />);
+
+  </script>
+</body>
+</html>
