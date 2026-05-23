@@ -63,7 +63,7 @@ import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle, RotateCcw, Clock, Pencil, Wind, Droplets,
   ArrowLeft, Lightbulb, ListChecks, ChevronRight, ChevronDown,
-  Info, Check, X, History, ShieldAlert, Beaker, Bell, FlaskConical,
+  Info, Check, X, History, ShieldAlert, Beaker, Bell, FlaskConical, Trash2,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────
@@ -1086,7 +1086,101 @@ function VolumeSheet({ open, volume, onChange, onClose }) {
   );
 }
 
-function HistorySheet({ open, onClose, history }) {
+function HistoryRow({ entry, openKey, setOpenKey, onDelete }) {
+  const isOpen = openKey === entry.ts;
+  const [dragTx, setDragTx] = useState(null); // null = not dragging
+  const startX = useRef(null);
+  const startY = useRef(null);
+  const direction = useRef(null); // 'h' | 'v' | null
+
+  const onTouchStart = (e) => {
+    startX.current = e.touches[0].clientX;
+    startY.current = e.touches[0].clientY;
+    direction.current = null;
+    setDragTx(null);
+  };
+
+  const onTouchMove = (e) => {
+    if (startX.current === null) return;
+    const dx = e.touches[0].clientX - startX.current;
+    const dy = e.touches[0].clientY - startY.current;
+    if (direction.current === null) {
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+        direction.current = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      }
+    }
+    if (direction.current === 'h') {
+      const base = isOpen ? -80 : 0;
+      const tx = Math.max(-100, Math.min(0, base + dx));
+      setDragTx(tx);
+    }
+  };
+
+  const onTouchEnd = () => {
+    if (direction.current === 'h' && dragTx !== null) {
+      if (dragTx < -40) {
+        setOpenKey(entry.ts);
+      } else {
+        setOpenKey(null);
+      }
+    }
+    setDragTx(null);
+    startX.current = null;
+    direction.current = null;
+  };
+
+  const translateX = dragTx !== null ? dragTx : (isOpen ? -80 : 0);
+
+  return (
+    <div className="relative overflow-hidden rounded-xl" style={{ backgroundColor: '#ff3b30' }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete(entry.ts); setOpenKey(null); }}
+        className="absolute right-0 top-0 bottom-0 w-20 text-white font-semibold text-[13px] flex items-center justify-center"
+        style={{ backgroundColor: '#ff3b30', color: '#ffffff' }}
+      >
+        Delete
+      </button>
+      <div
+        style={{
+          transform: `translateX(${translateX}px)`,
+          transition: dragTx === null ? 'transform 0.2s ease' : 'none',
+          touchAction: 'pan-y',
+        }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+        onClick={() => isOpen && setOpenKey(null)}
+      >
+        <div className="bg-[#f5f5f7] rounded-xl px-3.5 py-2.5" style={{ backgroundColor: '#f5f5f7' }}>
+          <div className="text-[12px] text-[#86868b] font-medium">
+            {new Date(entry.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+            {Object.entries(entry.values).filter(([_, v]) => v).map(([k, v]) => (
+              <span key={k} className="text-[12px] text-[#1d1d1f]">
+                <span className="text-[#86868b]">{FIELD_LABELS[k]}:</span> <span className="font-semibold">{v}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistorySheet({ open, onClose, history, onDeleteEntry, onClearAll }) {
+  const [openKey, setOpenKey] = useState(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  // Close any open swipe + reset confirm when sheet closes
+  useEffect(() => {
+    if (!open) {
+      setOpenKey(null);
+      setConfirmClear(false);
+    }
+  }, [open]);
+
   return (
     <Sheet open={open} onClose={onClose} title="Test history" maxWidth="max-w-md">
       {history.length === 0 ? (
@@ -1114,23 +1208,55 @@ function HistorySheet({ open, onClose, history }) {
               })}
             </div>
           </div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#86868b] mb-2 px-1">Recent</div>
+
+          <div className="flex items-baseline justify-between mb-2 px-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#86868b]">Recent</div>
+            <div className="text-[10px] text-[#a1a1a6]">Swipe left to delete</div>
+          </div>
           <div className="space-y-1.5">
-            {history.slice().reverse().slice(0, 15).map((h, i) => (
-              <div key={i} className="bg-[#f5f5f7] rounded-xl px-3.5 py-2.5">
-                <div className="text-[12px] text-[#86868b] font-medium">
-                  {new Date(h.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                  {Object.entries(h.values).filter(([_, v]) => v).map(([k, v]) => (
-                    <span key={k} className="text-[12px] text-[#1d1d1f]">
-                      <span className="text-[#86868b]">{FIELD_LABELS[k]}:</span> <span className="font-semibold">{v}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
+            {history.slice().reverse().slice(0, 15).map(h => (
+              <HistoryRow
+                key={h.ts}
+                entry={h}
+                openKey={openKey}
+                setOpenKey={setOpenKey}
+                onDelete={onDeleteEntry}
+              />
             ))}
           </div>
+
+          {!confirmClear && (
+            <button
+              onClick={() => setConfirmClear(true)}
+              className="mt-4 w-full bg-white border border-black/5 text-[#1d1d1f] py-2.5 rounded-xl text-[13px] font-medium flex items-center justify-center gap-1.5"
+              style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+            >
+              <Trash2 size={13} strokeWidth={2.2} /> Clear all history
+            </button>
+          )}
+          {confirmClear && (
+            <div className="mt-4 rounded-2xl bg-[#ff9500]/10 border border-[#ff9500]/30 px-4 py-3">
+              <p className="text-[13px] text-[#1d1d1f] font-medium mb-2">
+                Delete all {history.length} {history.length === 1 ? 'entry' : 'entries'}? This can't be undone.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmClear(false)}
+                  className="flex-1 bg-white border border-black/5 text-[#1d1d1f] py-2 rounded-lg text-[13px] font-medium"
+                  style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { onClearAll(); setConfirmClear(false); }}
+                  className="flex-1 bg-[#ff3b30] text-white py-2 rounded-lg text-[13px] font-semibold"
+                  style={{ backgroundColor: '#ff3b30', color: '#ffffff' }}
+                >
+                  Clear all
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Sheet>
@@ -2451,7 +2577,22 @@ function HotTubChemistry() {
 
       <WelcomeSheet open={welcomeOpen} onClose={dismissWelcome} />
       <VolumeSheet open={volumeOpen} volume={volume} onChange={setVolume} onClose={() => setVolumeOpen(false)} />
-      <HistorySheet open={historyOpen} onClose={() => setHistoryOpen(false)} history={history} />
+      <HistorySheet
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        history={history}
+        onDeleteEntry={(ts) => {
+          setHistory(prev => {
+            const next = prev.filter(h => h.ts !== ts);
+            storageSet(KEY.history, JSON.stringify(next));
+            return next;
+          });
+        }}
+        onClearAll={() => {
+          setHistory([]);
+          storageSet(KEY.history, JSON.stringify([]));
+        }}
+      />
       <PickerSheet
         open={!!pickerField}
         onClose={() => setPickerField(null)}
