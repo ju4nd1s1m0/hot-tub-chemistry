@@ -74,6 +74,7 @@ const KEY = {
   volume: 'hottub:volume:v1',
   mode: 'hottub:mode:v1',
   history: 'hottub:history:v1',
+  userChemicals: 'hottub:userChemicals:v1',
 };
 
 async function storageGet(key) {
@@ -179,7 +180,180 @@ const MY_CHEMICALS = [
   },
 ];
 
-const getChem = (id) => MY_CHEMICALS.find(c => c.id === id);
+// Curated list of common US products per category. Picking one in the
+// editor will populate productName, activeIngredient, labelDose, tspFactor.
+// Categories with low product variance just have a couple of options.
+const CHEMICAL_PRESETS = {
+  phUp: [
+    {
+      id: 'soda-ash',
+      label: 'Soda Ash (Sodium Carbonate)',
+      productName: 'Sodium Carbonate 100%',
+      activeIngredient: 'Sodium carbonate (soda ash) 100%',
+      labelDose: '1 oz / 500 gal raises pH ~0.2 (for pH 6.8–7.1); 2 oz / 500 gal for pH < 6.8',
+      tspFactor: 0.5,
+      examples: 'SpaGuard pH Increaser, Leisure Time Spa Up, HTH Spa pH Up',
+    },
+  ],
+  phDown: [
+    {
+      id: 'sodium-bisulfate',
+      label: 'Dry Acid (Sodium Bisulfate)',
+      productName: 'Sodium Bisulfate 93-100%',
+      activeIngredient: 'Sodium bisulfate (dry acid) 93-100%',
+      labelDose: '¼ oz / 500 gal for pH 7.7–8.0; ½ oz / 500 gal for pH > 8.0',
+      tspFactor: 0.17,
+      examples: 'SpaGuard pH Decreaser, Leisure Time Spa Down, HTH Spa pH Down',
+    },
+    {
+      id: 'muriatic-acid',
+      label: 'Muriatic Acid (much stronger — handle carefully)',
+      productName: 'Muriatic Acid ~31%',
+      activeIngredient: 'Hydrochloric acid 31%',
+      labelDose: 'Use sparingly — about 7× as strong as dry acid by volume',
+      tspFactor: 0.025,
+      examples: 'Generic muriatic acid (hardware stores)',
+    },
+  ],
+  alkalinityUp: [
+    {
+      id: 'baking-soda',
+      label: 'Sodium Bicarbonate (Baking Soda)',
+      productName: 'Sodium Bicarbonate 100%',
+      activeIngredient: 'Sodium bicarbonate 100%',
+      labelDose: '4 Tbsp / 400 gal raises alkalinity ~25 ppm',
+      tspFactor: 1.2,
+      examples: 'SpaGuard TA Increaser, Leisure Time Alkalinity Increaser, Arm & Hammer baking soda',
+    },
+  ],
+  alkalinityDown: [
+    {
+      id: 'sodium-bisulfate',
+      label: 'Dry Acid (Sodium Bisulfate) — same bottle as pH Down',
+      productName: 'Sodium Bisulfate 93-100% (same as pH Down)',
+      activeIngredient: 'Sodium bisulfate (dry acid) 93-100%',
+      labelDose: 'Same product as pH Down',
+      tspFactor: 0.6,
+      examples: 'SpaGuard pH Decreaser, Leisure Time Spa Down, HTH Spa pH Down',
+    },
+    {
+      id: 'muriatic-acid',
+      label: 'Muriatic Acid',
+      productName: 'Muriatic Acid ~31%',
+      activeIngredient: 'Hydrochloric acid 31%',
+      labelDose: 'Much stronger — use very sparingly',
+      tspFactor: 0.1,
+      examples: 'Generic muriatic acid',
+    },
+  ],
+  chlorine: [
+    {
+      id: 'dichlor-99',
+      label: 'Dichlor 99%',
+      productName: 'Dichlor 99% Granules',
+      activeIngredient: 'Sodium dichloro-s-triazinetrione (dichlor) 99%',
+      labelDose: '½ oz / 500 gal raises chlorine 2–3 ppm; 1 oz / 500 gal for shock',
+      tspFactor: 1.2,
+      examples: 'Spa 56, HTH Spa Sanitizer, Leisure Time Spa Sanitizer',
+    },
+    {
+      id: 'dichlor-56',
+      label: 'Dichlor 56% (dihydrate)',
+      productName: 'Dichlor 56% Granules',
+      activeIngredient: 'Sodium dichloroisocyanurate dihydrate 56%',
+      labelDose: '~1 oz / 500 gal raises chlorine 2–3 ppm',
+      tspFactor: 2.1,
+      examples: 'Generic dichlor pool shock, In The Swim Dichlor 56%',
+    },
+    {
+      id: 'cal-hypo-65',
+      label: 'Calcium Hypochlorite 65%',
+      productName: 'Calcium Hypochlorite 65%',
+      activeIngredient: 'Calcium hypochlorite 65%',
+      labelDose: '~0.4 oz / 500 gal raises chlorine 2–3 ppm',
+      tspFactor: 0.92,
+      examples: 'HTH Super Shock, generic cal-hypo granules',
+    },
+    {
+      id: 'cal-hypo-78',
+      label: 'Calcium Hypochlorite 78%',
+      productName: 'Calcium Hypochlorite 78%',
+      activeIngredient: 'Calcium hypochlorite 78%',
+      labelDose: '~0.3 oz / 500 gal raises chlorine 2–3 ppm',
+      tspFactor: 0.77,
+      examples: 'In The Swim 78% Cal Hypo',
+    },
+    {
+      id: 'lithium-hypo',
+      label: 'Lithium Hypochlorite 35%',
+      productName: 'Lithium Hypochlorite 35%',
+      activeIngredient: 'Lithium hypochlorite 35%',
+      labelDose: '~0.6 oz / 500 gal raises chlorine 2–3 ppm',
+      tspFactor: 1.5,
+      examples: 'Leisure Time Lithium Shock',
+    },
+  ],
+  calciumUp: [
+    {
+      id: 'cacl2-anhydrous',
+      label: 'Calcium Chloride (Anhydrous Flake)',
+      productName: 'Calcium Chloride 77-94%',
+      activeIngredient: 'Calcium chloride 77-94%',
+      labelDose: '2 Tbsp / 500 gal raises calcium ~10 ppm',
+      tspFactor: 1.2,
+      examples: 'SpaGuard Calcium Hardness Increaser, Leisure Time Calcium Booster',
+    },
+    {
+      id: 'cacl2-dihydrate',
+      label: 'Calcium Chloride (Dihydrate)',
+      productName: 'Calcium Chloride Dihydrate ~99%',
+      activeIngredient: 'Calcium chloride dihydrate ~99%',
+      labelDose: '~2.5 Tbsp / 500 gal raises calcium ~10 ppm',
+      tspFactor: 1.55,
+      examples: 'Generic ice-melt grade calcium chloride',
+    },
+  ],
+  chlorineNeutralizer: [
+    {
+      id: 'sodium-thiosulfate',
+      label: 'Sodium Thiosulfate',
+      productName: 'Sodium Thiosulfate ~98%',
+      activeIngredient: 'Sodium thiosulfate ~98%',
+      labelDose: '1 oz (4 tsp) neutralizes 1 ppm chlorine per 10,000 gal',
+      tspFactor: 0.04,
+      examples: 'MAV AquaDoc Neutralizer, generic spa chlorine neutralizer',
+    },
+  ],
+  nonChlorineShock: [
+    {
+      id: 'mps-36',
+      label: 'MPS 36–43%',
+      productName: 'Potassium Peroxymonosulfate 36–43%',
+      activeIngredient: 'Potassium peroxymonosulfate (MPS) 36–43%',
+      labelDose: '2 oz / 500 gal after every use',
+      tspFactor: 2.4,
+      examples: 'SpaGuard Enhanced Shock, Leisure Time Renew Shock, Professional Chlorine-Free Shock',
+    },
+    {
+      id: 'mps-30',
+      label: 'MPS 30%',
+      productName: 'Potassium Peroxymonosulfate 30%',
+      activeIngredient: 'Potassium peroxymonosulfate (MPS) 30%',
+      labelDose: '~2.5 oz / 500 gal after every use',
+      tspFactor: 2.9,
+      examples: 'Lower-strength generic non-chlorine shocks',
+    },
+  ],
+};
+
+// Look up a chemical by id, applying any user override on top of the factory default.
+// userChemicals is a map: { [chemId]: { productName, activeIngredient, labelDose, tspFactor, presetId? } }
+const getChem = (id, userChemicals = {}) => {
+  const base = MY_CHEMICALS.find(c => c.id === id);
+  if (!base) return null;
+  const override = userChemicals[id];
+  return override ? { ...base, ...override } : base;
+};
 
 // ─────────────────────────────────────────────────────────────────
 // Theme
@@ -259,7 +433,13 @@ const PARAM_INFO = {
   },
 };
 
-function analyze(v, volume) {
+function analyze(v, volume, userChemicals = {}) {
+  const getChem = (id) => {
+    const base = MY_CHEMICALS.find(c => c.id === id);
+    if (!base) return null;
+    const override = userChemicals[id];
+    return override ? { ...base, ...override } : base;
+  };
   const out = [];
   const num = (s) => { const n = parseFloat(s); return isNaN(n) ? null : n; };
   const scale = volume / 100;
@@ -1247,45 +1427,323 @@ function TestGuide({ onBack, onUseReading, values, initialActiveId }) {
 // ─────────────────────────────────────────────────────────────────
 // My Chemicals — read-only reference list
 // ─────────────────────────────────────────────────────────────────
-function MyChemicalsPage({ onBack }) {
+// Sheet for editing one chemical: pick from a curated preset list, or enter values manually.
+function ChemicalEditorSheet({ open, onClose, chemical, currentOverride, presets, onSave, onReset }) {
+  // selectedId is a preset id, 'default' (factory default), or 'manual'
+  const [selectedId, setSelectedId] = useState('default');
+  const [name, setName] = useState('');
+  const [activeIngredient, setActiveIngredient] = useState('');
+  const [labelDose, setLabelDose] = useState('');
+  const [tspFactor, setTspFactor] = useState('');
+
+  useEffect(() => {
+    if (!open || !chemical) return;
+    // Initialize selection based on what's currently saved
+    if (currentOverride?.presetId) {
+      setSelectedId(currentOverride.presetId);
+    } else if (currentOverride?.manual) {
+      setSelectedId('manual');
+    } else {
+      setSelectedId('default');
+    }
+    // Pre-fill manual fields with current effective values
+    setName(chemical.productName || '');
+    setActiveIngredient(chemical.activeIngredient || '');
+    setLabelDose(chemical.labelDose || '');
+    setTspFactor(String(chemical.tspFactor || ''));
+  }, [open, chemical, currentOverride]);
+
+  if (!chemical) return null;
+
+  const handleSave = () => {
+    if (selectedId === 'default') {
+      // Reset = remove override
+      onReset();
+    } else if (selectedId === 'manual') {
+      const f = parseFloat(tspFactor);
+      if (isNaN(f) || f <= 0) {
+        // Could show an error; for now just block save
+        return;
+      }
+      onSave({
+        productName: name.trim() || chemical.productName,
+        activeIngredient: activeIngredient.trim() || chemical.activeIngredient,
+        labelDose: labelDose.trim() || chemical.labelDose,
+        tspFactor: f,
+        manual: true,
+      });
+    } else {
+      const preset = presets.find(p => p.id === selectedId);
+      if (!preset) return;
+      onSave({
+        productName: preset.productName,
+        activeIngredient: preset.activeIngredient,
+        labelDose: preset.labelDose,
+        tspFactor: preset.tspFactor,
+        presetId: preset.id,
+      });
+    }
+    onClose();
+  };
+
+  const canSave = selectedId !== 'manual' || (
+    parseFloat(tspFactor) > 0
+  );
+
+  return (
+    <Sheet open={open} onClose={onClose} title={`Edit ${chemical.label}`} maxWidth="max-w-sm">
+      <p className="text-[13px] text-[#86868b] leading-relaxed mb-4">
+        Pick the product you have, or enter values from your bottle.
+      </p>
+
+      <div className="space-y-2">
+        {/* Factory default option */}
+        <ChemicalOption
+          selected={selectedId === 'default'}
+          onSelect={() => setSelectedId('default')}
+          title="Reset to factory default"
+          subtitle="Use the app's built-in default for this category"
+          subtle
+        />
+
+        {/* Curated presets */}
+        {presets && presets.length > 0 && presets.map(p => (
+          <ChemicalOption
+            key={p.id}
+            selected={selectedId === p.id}
+            onSelect={() => setSelectedId(p.id)}
+            title={p.label}
+            subtitle={p.examples ? `e.g. ${p.examples}` : undefined}
+          />
+        ))}
+
+        {/* Manual entry */}
+        <ChemicalOption
+          selected={selectedId === 'manual'}
+          onSelect={() => setSelectedId('manual')}
+          title="Other / enter manually"
+          subtitle="If your bottle isn't in the list above"
+        />
+
+        {selectedId === 'manual' && (
+          <div className="mt-3 bg-[#f5f5f7] rounded-xl px-3.5 py-3.5 space-y-3">
+            <ChemField label="Product name (optional)" value={name} onChange={setName} placeholder="e.g. Brand X Spa Chlorine" />
+            <ChemField label="Active ingredient and %" value={activeIngredient} onChange={setActiveIngredient} placeholder="e.g. Dichlor 99%" />
+            <ChemField label="Label dose (free text)" value={labelDose} onChange={setLabelDose} placeholder="e.g. 1 oz / 500 gal raises chlorine 2-3 ppm" multiline />
+            <ChemField
+              label={`Dose strength (tsp per 100 gal per ${chemical.unit} ${chemical.unitName})`}
+              value={tspFactor}
+              onChange={setTspFactor}
+              placeholder="e.g. 1.2"
+              numeric
+              hint="If you're not sure, start with the current value and adjust if doses feel too weak or strong."
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 mt-5">
+        <button
+          onClick={onClose}
+          className="px-4 bg-[#f5f5f7] text-[#1d1d1f] py-3.5 rounded-xl font-medium text-[14px]"
+          style={{ backgroundColor: '#f5f5f7', color: '#1d1d1f' }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={!canSave}
+          className={`flex-1 text-white font-semibold py-3.5 rounded-xl text-[15px] ${canSave ? 'bg-[#007aff]' : 'bg-[#a1a1a6]'}`}
+          style={canSave ? { backgroundColor: '#007aff', color: '#ffffff' } : { backgroundColor: '#a1a1a6', color: '#ffffff' }}
+        >
+          Save
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+function ChemicalOption({ selected, onSelect, title, subtitle, subtle }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full text-left rounded-xl px-3.5 py-3 border transition-colors ${selected ? 'bg-[#007aff]/8 border-[#007aff]/40' : 'bg-white border-black/5 active:bg-[#f5f5f7]'}`}
+      style={{ WebkitTapHighlightColor: 'transparent' }}
+    >
+      <div className="flex items-start gap-2.5">
+        <span
+          className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${selected ? 'border-[#007aff]' : 'border-[#c7c7cc]'}`}
+          style={selected ? { borderColor: '#007aff' } : { borderColor: '#c7c7cc' }}
+        >
+          {selected && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#007aff' }} />}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className={`text-[14px] leading-snug ${subtle ? 'font-medium' : 'font-semibold'} text-[#1d1d1f]`}>{title}</div>
+          {subtitle && <div className="text-[12px] text-[#86868b] mt-0.5 leading-snug">{subtitle}</div>}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function ChemField({ label, value, onChange, placeholder, multiline, numeric, hint }) {
+  const Input = multiline ? 'textarea' : 'input';
+  return (
+    <div>
+      <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#86868b] mb-1">{label}</label>
+      <Input
+        type={numeric ? 'number' : 'text'}
+        inputMode={numeric ? 'decimal' : undefined}
+        step={numeric ? '0.01' : undefined}
+        min={numeric ? '0' : undefined}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={multiline ? 2 : undefined}
+        className="w-full bg-white border border-black/10 rounded-lg px-3 py-2 text-[14px] text-[#1d1d1f] outline-none focus:border-[#007aff]"
+        style={{ color: '#1d1d1f', backgroundColor: '#ffffff', resize: multiline ? 'vertical' : 'none' }}
+      />
+      {hint && <p className="text-[11px] text-[#a1a1a6] mt-1 leading-snug">{hint}</p>}
+    </div>
+  );
+}
+
+function MyChemicalsPage({ onBack, userChemicals, setUserChemicals }) {
+  const [editingId, setEditingId] = useState(null);
+  const [confirmResetAll, setConfirmResetAll] = useState(false);
+
+  const editingChem = editingId ? getChem(editingId, userChemicals) : null;
+  const editingPresets = editingId ? (CHEMICAL_PRESETS[editingId] || []) : [];
+
+  const handleSaveOverride = (data) => {
+    setUserChemicals(prev => ({ ...prev, [editingId]: data }));
+  };
+
+  const handleResetOne = (id) => {
+    setUserChemicals(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const handleResetAll = () => {
+    setUserChemicals({});
+    setConfirmResetAll(false);
+  };
+
+  const hasAnyCustomization = Object.keys(userChemicals).length > 0;
+
   return (
     <>
       <header className="mb-5">
         <button onClick={onBack} className="inline-flex items-center gap-1 text-[#007aff] mb-2 -ml-1 px-1 py-1 text-[15px] font-medium">
           <ArrowLeft size={18} strokeWidth={2.2} /> Back
         </button>
-        <h1 className="text-[#1d1d1f] text-[34px] font-bold tracking-tight leading-tight">My chemicals</h1>
-        <p className="mt-1 text-[#86868b] text-[15px] leading-snug">
-          Your products and label dosing. Recommendations are calculated from these.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-[#1d1d1f] text-[34px] font-bold tracking-tight leading-tight">My chemicals</h1>
+            <p className="mt-1 text-[#86868b] text-[15px] leading-snug">
+              Your products and label dosing. Recommendations are calculated from these.
+            </p>
+          </div>
+        </div>
       </header>
 
+      {hasAnyCustomization && !confirmResetAll && (
+        <button
+          onClick={() => setConfirmResetAll(true)}
+          className="mb-4 w-full bg-white border border-black/5 text-[#1d1d1f] py-2.5 rounded-xl text-[13px] font-medium flex items-center justify-center gap-1.5"
+          style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+        >
+          <RotateCcw size={13} strokeWidth={2.2} /> Reset all chemicals to defaults
+        </button>
+      )}
+      {confirmResetAll && (
+        <div className="mb-4 rounded-2xl bg-[#ff9500]/10 border border-[#ff9500]/30 px-4 py-3">
+          <p className="text-[13px] text-[#1d1d1f] font-medium mb-2">
+            Reset all chemicals to factory defaults? Your customizations will be lost.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmResetAll(false)}
+              className="flex-1 bg-white border border-black/5 text-[#1d1d1f] py-2 rounded-lg text-[13px] font-medium"
+              style={{ backgroundColor: '#ffffff', color: '#1d1d1f' }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleResetAll}
+              className="flex-1 bg-[#ff3b30] text-white py-2 rounded-lg text-[13px] font-semibold"
+              style={{ backgroundColor: '#ff3b30', color: '#ffffff' }}
+            >
+              Reset all
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
-        {MY_CHEMICALS.map(c => (
-          <article key={c.id} className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
-            <div className="px-4 py-4">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <h3 className="text-[16px] font-semibold text-[#1d1d1f] leading-tight">{c.label}</h3>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-[#34c759]">Saved</span>
-              </div>
-              <div className="text-[14px] text-[#1d1d1f] font-medium">{c.productName}</div>
-              <div className="text-[12px] text-[#86868b] mt-0.5">{c.activeIngredient}</div>
+        {MY_CHEMICALS.map(base => {
+          const c = getChem(base.id, userChemicals);
+          const isCustomized = !!userChemicals[base.id];
+          return (
+            <article key={c.id} className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
+              <div className="px-4 py-4">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <div className="min-w-0">
+                    <h3 className="text-[16px] font-semibold text-[#1d1d1f] leading-tight">{c.label}</h3>
+                    {isCustomized && (
+                      <span className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wider text-[#007aff] bg-[#007aff]/10 px-2 py-0.5 rounded-full">Customized</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setEditingId(base.id)}
+                    className="shrink-0 inline-flex items-center gap-1 bg-[#f5f5f7] text-[#1d1d1f] px-3 py-1.5 rounded-full text-[12px] font-semibold"
+                    style={{ backgroundColor: '#f5f5f7', color: '#1d1d1f' }}
+                  >
+                    <Pencil size={11} strokeWidth={2.2} /> Edit
+                  </button>
+                </div>
+                <div className="text-[14px] text-[#1d1d1f] font-medium">{c.productName}</div>
+                <div className="text-[12px] text-[#86868b] mt-0.5">{c.activeIngredient}</div>
 
-              <div className="mt-3 bg-[#f5f5f7] rounded-xl px-3.5 py-2.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#86868b] mb-0.5">Label dose</div>
-                <div className="text-[12.5px] text-[#1d1d1f] leading-snug">{c.labelDose}</div>
-              </div>
+                <div className="mt-3 bg-[#f5f5f7] rounded-xl px-3.5 py-2.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#86868b] mb-0.5">Label dose</div>
+                  <div className="text-[12.5px] text-[#1d1d1f] leading-snug">{c.labelDose}</div>
+                </div>
 
-              <div className="text-[11px] text-[#86868b] mt-2.5 font-medium tabular-nums">
-                {c.tspFactor} tsp per 100 gal per {c.unit} {c.unitName}
+                <div className="text-[11px] text-[#86868b] mt-2.5 font-medium tabular-nums">
+                  {c.tspFactor} tsp per 100 gal per {c.unit} {c.unitName}
+                </div>
+                <div className="text-[11.5px] text-[#86868b] mt-1.5 leading-snug">
+                  <span className="font-medium text-[#1d1d1f]">Used when:</span> {c.usedFor}
+                </div>
+
+                {isCustomized && (
+                  <button
+                    onClick={() => handleResetOne(base.id)}
+                    className="mt-3 text-[12px] text-[#007aff] font-medium px-1 py-1"
+                  >
+                    Reset to default
+                  </button>
+                )}
               </div>
-              <div className="text-[11.5px] text-[#86868b] mt-1.5 leading-snug">
-                <span className="font-medium text-[#1d1d1f]">Used when:</span> {c.usedFor}
-              </div>
-            </div>
-          </article>
-        ))}
+            </article>
+          );
+        })}
       </div>
+
+      <ChemicalEditorSheet
+        open={!!editingId}
+        onClose={() => setEditingId(null)}
+        chemical={editingChem}
+        currentOverride={editingId ? userChemicals[editingId] : null}
+        presets={editingPresets}
+        onSave={handleSaveOverride}
+        onReset={() => handleResetOne(editingId)}
+      />
     </>
   );
 }
@@ -1619,6 +2077,7 @@ function HotTubChemistry() {
   const [values, setValues] = useState(initialValues);
   const [results, setResults] = useState(null);
   const [history, setHistory] = useState([]);
+  const [userChemicals, setUserChemicals] = useState({});
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [volumeOpen, setVolumeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -1644,8 +2103,17 @@ function HotTubChemistry() {
       if (h) {
         try { const arr = JSON.parse(h); if (Array.isArray(arr)) setHistory(arr); } catch {}
       }
+      const uc = await storageGet(KEY.userChemicals);
+      if (uc) {
+        try { const obj = JSON.parse(uc); if (obj && typeof obj === 'object') setUserChemicals(obj); } catch {}
+      }
     })();
   }, []);
+
+  // Persist userChemicals whenever it changes
+  useEffect(() => {
+    storageSet(KEY.userChemicals, JSON.stringify(userChemicals));
+  }, [userChemicals]);
 
   useEffect(() => { storageSet(KEY.volume, String(volume)); }, [volume]);
   // Persist Full/Basic preference (skip Results — not a saved mode)
@@ -1663,7 +2131,7 @@ function HotTubChemistry() {
 
   const handleAnalyze = () => {
     const wasOn = activePage; // capture which entry page they came from
-    const r = analyze(values, volume);
+    const r = analyze(values, volume, userChemicals);
     setResults(r);
     setStepStates({});
     const anyValue = Object.values(values).some(v => v !== '');
@@ -1694,9 +2162,9 @@ function HotTubChemistry() {
   };
 
   useEffect(() => {
-    if (results) setResults(analyze(values, volume));
+    if (results) setResults(analyze(values, volume, userChemicals));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [volume]);
+  }, [volume, userChemicals]);
 
   const onMarkDone = (r) => {
     const at = Date.now();
@@ -1762,7 +2230,11 @@ function HotTubChemistry() {
             initialActiveId={pendingTestId}
           />
         ) : view === 'chemicals' ? (
-          <MyChemicalsPage onBack={() => setView('analyze')} />
+          <MyChemicalsPage
+            onBack={() => setView('analyze')}
+            userChemicals={userChemicals}
+            setUserChemicals={setUserChemicals}
+          />
         ) : (
           <>
             <div className="flex items-center justify-between gap-2 mb-4">
